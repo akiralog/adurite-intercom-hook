@@ -157,15 +157,19 @@ class IntercomClient:
                 return response.status == 200
     
     async def get_conversation_parts(self, conversation_id: str) -> List[Dict]:
-        """Get all parts (messages) of a conversation"""
-        url = f"{self.base_url}/conversations/{conversation_id}/parts"
+        """Get conversation parts for a specific conversation"""
+        url = f"{self.base_url}/conversations/{conversation_id}"
         
         async with aiohttp.ClientSession() as session:
             async with session.get(url, headers=self.headers) as response:
                 if response.status == 200:
                     data = await response.json()
-                    return data.get("conversation_parts", [])
-        return []
+                    # The conversation_parts are nested under conversation_parts.conversation_parts
+                    conversation_parts = data.get("conversation_parts", {}).get("conversation_parts", [])
+                    return conversation_parts
+                else:
+                    print(f"❌ Failed to get conversation parts: {response.status}")
+                    return []
     
     async def is_conversation_fresh(self, conversation_id: str) -> bool:
         """Check if a conversation is fresh (no admin replies)"""
@@ -225,18 +229,53 @@ class IntercomClient:
             print(f"❌ Could not fetch conversation: {conversation_id}")
             return None
         
+        # Debug: Print conversation structure
+        print(f"📋 Conversation keys: {list(conversation.keys())}")
+        print(f"📋 Source keys: {list(conversation.get('source', {}).keys())}")
+        
         # Get all conversation parts for the full thread
         parts = await self.get_conversation_parts(conversation_id)
         print(f"📝 Found {len(parts)} conversation parts")
+        
+        # Debug: Print parts structure
+        if parts:
+            print(f"📋 First part keys: {list(parts[0].keys())}")
+            print(f"📋 First part author: {parts[0].get('author', {})}")
         
         # Build the full conversation thread
         thread_messages = []
         
         # Add initial message if it exists
         initial = conversation.get("source", {})
+        print(f"📋 Initial message keys: {list(initial.keys())}")
+        print(f"📋 Initial author: {initial.get('author', {})}")
+        print(f"📋 Initial body: {initial.get('body', 'No body')[:100]}...")
+        
         if initial.get("body"):
-            author_type = initial.get("author", {}).get("type", "unknown")
-            author_name = initial.get("author", {}).get("name", "Unknown")
+            # Better author handling
+            author = initial.get("author", {})
+            author_type = author.get("type", "unknown")
+            
+            # Try different ways to get author name - Intercom might use different fields
+            author_name = author.get("name")
+            if not author_name:
+                author_name = author.get("email")
+            if not author_name:
+                author_name = author.get("id")
+            if not author_name:
+                # Check if it's a lead/user with different structure
+                if author_type == "lead":
+                    author_name = "Lead User"
+                elif author_type == "user":
+                    author_name = "User"
+                elif author_type == "admin":
+                    author_name = "Admin"
+                else:
+                    author_name = f"Unknown {author_type.title()}"
+            
+            print(f"📋 Final author name: {author_name}")
+            print(f"📋 Author type: {author_type}")
+            
             body = self._clean_html(initial.get("body", ""))
             if body:
                 thread_messages.append({
@@ -249,16 +288,40 @@ class IntercomClient:
         # Add all conversation parts in chronological order
         for i, part in enumerate(parts):
             if part.get("body"):
-                author_type = part.get("author", {}).get("type", "unknown")
-                author_name = part.get("author", {}).get("name", "Unknown")
-                body = self._clean_html(part.get("body", ""))
+                # Extract author information
+                author = part.get("author", {})
+                author_type = author.get("type", "unknown")
+                
+                # Get author name with better fallback logic
+                author_name = author.get("name")
+                if not author_name:
+                    author_email = author.get("email")
+                    if author_email:
+                        author_name = author_email
+                    else:
+                        # Use descriptive names for different types
+                        if author_type == "lead":
+                            author_name = "Lead User"
+                        elif author_type == "user":
+                            author_name = "User"
+                        elif author_type == "admin":
+                            author_name = "Admin"
+                        elif author_type == "bot":
+                            author_name = "Bot"
+                        else:
+                            author_name = f"{author_type.title()} User"
+                
+                # Get message content
+                body = part.get("body", "")
                 if body:
+                    # Clean HTML from the message
+                    clean_body = self._clean_html(body)
                     thread_messages.append({
                         "author": f"{author_name} ({author_type})",
-                        "message": body,
+                        "message": clean_body,
                         "timestamp": part.get("created_at", "Unknown")
                     })
-                    print(f"📤 Added part {i+1}: {author_name} ({author_type}) - {body[:50]}...")
+                    print(f"📤 Added part {i+1}: {author_name} ({author_type}) - {clean_body[:50]}...")
         
         print(f"📊 Total messages in thread: {len(thread_messages)}")
         
