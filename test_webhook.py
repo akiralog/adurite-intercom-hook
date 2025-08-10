@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-async def test_webhook():
+async def run_webhook_test():
     """Test the webhook endpoint"""
     webhook_url = "http://localhost:8000/webhook"
     
@@ -47,7 +47,7 @@ async def test_webhook():
     except Exception as e:
         print(f"❌ Error testing webhook: {e}")
 
-async def test_intercom_api():
+async def run_intercom_api_test():
     """Test Intercom API connectivity"""
     access_token = os.getenv('INTERCOM_ACCESS_TOKEN')
     
@@ -89,8 +89,8 @@ def main():
         return
     
     # Run tests
-    asyncio.run(test_webhook())
-    asyncio.run(test_intercom_api())
+    asyncio.run(run_webhook_test())
+    asyncio.run(run_intercom_api_test())
     
     print("\n" + "=" * 60)
     print("📋 Test Summary:")
