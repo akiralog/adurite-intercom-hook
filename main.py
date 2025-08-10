@@ -117,6 +117,46 @@ class IntercomTicketBot(commands.Bot):
                 await ctx.send(f"✅ Synced {len(fresh_conversations)} fresh tickets!")
                 logger.info(f"🎉 Sync completed successfully! Synced {len(fresh_conversations)} tickets")
                 
+                # Show available commands after sync
+                commands_embed = discord.Embed(
+                    title="📋 Available Commands",
+                    description="Use these commands to manage tickets:",
+                    color=0x00ff00,
+                    timestamp=discord.utils.utcnow()
+                )
+                
+                commands_embed.add_field(
+                    name="🔄 `!sync`", 
+                    value="Sync tickets again", 
+                    inline=True
+                )
+                commands_embed.add_field(
+                    name="📊 `!status`", 
+                    value="Check ticket counts", 
+                    inline=True
+                )
+                commands_embed.add_field(
+                    name="🧹 `!cleanup`", 
+                    value="Clean old tickets", 
+                    inline=True
+                )
+                commands_embed.add_field(
+                    name="📝 `!commands`", 
+                    value="Show all commands and ticket actions", 
+                    inline=True
+                )
+                
+                # Add ticket actions section
+                commands_embed.add_field(
+                    name="🎫 Ticket Actions",
+                    value="Quick replies, custom replies, and ticket management",
+                    inline=False
+                )
+                
+                commands_embed.set_footer(text="Commands are always available - just type them!")
+                
+                await ctx.send(embed=commands_embed)
+                
             except Exception as e:
                 logger.error(f"❌ Error syncing tickets: {e}")
                 logger.error(f"❌ Error type: {type(e)}")
@@ -168,6 +208,48 @@ class IntercomTicketBot(commands.Bot):
             except Exception as e:
                 logger.error(f"Error cleaning up tickets: {e}")
                 await ctx.send(f"❌ Error cleaning up tickets: {str(e)}")
+        
+        @self.command(name='commands')
+        async def commands_command(ctx):
+            """Show available commands and their usage"""
+            embed = discord.Embed(
+                title="🤖 Bot Commands",
+                description="Here are all the available commands:",
+                color=0x0099ff,
+                timestamp=discord.utils.utcnow()
+            )
+            
+            embed.add_field(
+                name="🔄 `!sync`", 
+                value="Sync current open tickets with Discord channel", 
+                inline=False
+            )
+            embed.add_field(
+                name="📊 `!status`", 
+                value="Show bot status and ticket counts", 
+                inline=False
+            )
+            embed.add_field(
+                name="🧹 `!cleanup`", 
+                value="Clean up old tickets from database (30+ days)", 
+                inline=False
+            )
+            embed.add_field(
+                name="📋 `!commands`", 
+                value="Show this commands list", 
+                inline=False
+            )
+            
+            # Add ticket actions section
+            embed.add_field(
+                name="🎫 Ticket Actions",
+                value="Each ticket has buttons for:\n• Quick replies (predefined messages)\n• ✏️ Custom Reply (type your own message)\n• Close Ticket (close the conversation)",
+                inline=False
+            )
+            
+            embed.set_footer(text="All commands require administrator permissions")
+            
+            await ctx.send(embed=embed)
     
     async def setup_hook(self):
         """Setup hook called when bot is starting"""
@@ -217,7 +299,8 @@ class IntercomTicketBot(commands.Bot):
             color=0x00ff00,
             timestamp=discord.utils.utcnow()
         )
-        embed.add_field(name="Commands", value="`!sync`, `!status`, `!cleanup`", inline=False)
+        embed.add_field(name="Commands", value="`!sync`, `!status`, `!cleanup`, `!commands`", inline=False)
+        embed.add_field(name="Ticket Actions", value="Quick replies, custom replies, and ticket management", inline=False)
         embed.set_footer(text="Intercom Ticket Bot")
         
         await channel.send(embed=embed)

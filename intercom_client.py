@@ -95,20 +95,36 @@ class IntercomClient:
     
     async def send_reply(self, conversation_id: str, message: str, admin_id: Optional[str] = None) -> bool:
         """Send a reply to a conversation"""
+        if admin_id is None:
+            admin_id = Config.INTERCOM_ADMIN_ID
+        
         url = f"{self.base_url}/conversations/{conversation_id}/reply"
         
         payload = {
             "message_type": "comment",
             "type": "admin",
+            "admin_id": admin_id,
             "body": message
         }
         
-        if admin_id:
-            payload["admin_id"] = admin_id
-        
         async with aiohttp.ClientSession() as session:
             async with session.post(url, headers=self.headers, json=payload) as response:
-                return response.status == 200
+                if response.status == 200:
+                    # Log the response for debugging
+                    try:
+                        response_data = await response.json()
+                        print(f"✅ Reply sent successfully. Response: {response_data}")
+                    except:
+                        print(f"✅ Reply sent successfully. Status: {response.status}")
+                    return True
+                else:
+                    # Log error for debugging
+                    try:
+                        error_data = await response.text()
+                        print(f"❌ Failed to send reply. Status: {response.status}, Error: {error_data}")
+                    except:
+                        print(f"❌ Failed to send reply. Status: {response.status}")
+                    return False
     
     async def close_conversation(self, conversation_id: str, admin_id: Optional[str] = None) -> bool:
         """Close a conversation"""
@@ -198,6 +214,72 @@ class IntercomClient:
             "created_at": conversation.get("created_at"),
             "updated_at": conversation.get("updated_at"),
             "is_fresh": await self.is_conversation_fresh(conversation_id)
+        }
+    
+    async def get_conversation_thread(self, conversation_id: str) -> Optional[Dict]:
+        """Get the full conversation thread including all messages (user and admin)"""
+        print(f"🔍 Fetching conversation thread for: {conversation_id}")
+        
+        conversation = await self.get_conversation(conversation_id)
+        if not conversation:
+            print(f"❌ Could not fetch conversation: {conversation_id}")
+            return None
+        
+        # Get all conversation parts for the full thread
+        parts = await self.get_conversation_parts(conversation_id)
+        print(f"📝 Found {len(parts)} conversation parts")
+        
+        # Build the full conversation thread
+        thread_messages = []
+        
+        # Add initial message if it exists
+        initial = conversation.get("source", {})
+        if initial.get("body"):
+            author_type = initial.get("author", {}).get("type", "unknown")
+            author_name = initial.get("author", {}).get("name", "Unknown")
+            body = self._clean_html(initial.get("body", ""))
+            if body:
+                thread_messages.append({
+                    "author": f"{author_name} ({author_type})",
+                    "message": body,
+                    "timestamp": initial.get("created_at", "Unknown")
+                })
+                print(f"📤 Added initial message from {author_name} ({author_type})")
+        
+        # Add all conversation parts in chronological order
+        for i, part in enumerate(parts):
+            if part.get("body"):
+                author_type = part.get("author", {}).get("type", "unknown")
+                author_name = part.get("author", {}).get("name", "Unknown")
+                body = self._clean_html(part.get("body", ""))
+                if body:
+                    thread_messages.append({
+                        "author": f"{author_name} ({author_type})",
+                        "message": body,
+                        "timestamp": part.get("created_at", "Unknown")
+                    })
+                    print(f"📤 Added part {i+1}: {author_name} ({author_type}) - {body[:50]}...")
+        
+        print(f"📊 Total messages in thread: {len(thread_messages)}")
+        
+        # Format the thread for display
+        if thread_messages:
+            formatted_thread = []
+            for msg in thread_messages:
+                formatted_thread.append(f"**{msg['author']}:** {msg['message']}")
+            thread_text = "\n\n".join(formatted_thread)
+        else:
+            thread_text = "No messages in conversation"
+        
+        return {
+            "id": conversation.get("id"),
+            "status": conversation.get("state"),
+            "subject": self._clean_html(initial.get("subject", "No subject")),
+            "body": thread_text,
+            "user": conversation.get("user", {}),
+            "created_at": conversation.get("created_at"),
+            "updated_at": conversation.get("updated_at"),
+            "message_count": len(thread_messages)
         }
     
     async def process_conversations_in_batches(self, conversation_ids: List[str], batch_size: int = None) -> List[Dict]:
