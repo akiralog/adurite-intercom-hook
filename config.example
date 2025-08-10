@@ -7,7 +7,7 @@ INTERCOM_ACCESS_TOKEN=your_intercom_access_token_here
 INTERCOM_WEBHOOK_SECRET=your_intercom_webhook_secret_here
 INTERCOM_ADMIN_ID=6673256
 
-# Rate Limiting (Optional - defaults shown)
+# Rate Limiting (Optional - defaults shown) Not in use at the moment.
 RATE_LIMIT_MIN_INTERVAL=0.1
 RATE_LIMIT_BATCH_SIZE=5
 RATE_LIMIT_BATCH_DELAY=0.5

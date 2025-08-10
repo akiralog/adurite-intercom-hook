@@ -39,7 +39,7 @@ class TestConfig:
     def test_environment_variables(self):
         """Test that environment variables are properly loaded"""
         # This test would require refactoring Config to use environment variables
-        # For now, we'll test the structure
+        # For now, test the structure
         assert hasattr(Config, 'QUICK_REPLIES')
     
     def test_config_attributes_exist(self):
@@ -54,10 +54,8 @@ class TestQuickRepliesIntegration:
     
     def test_quick_reply_keys_format(self):
         """Test that quick reply keys can contain underscores"""
-        # This is important for the fix we implemented
         keys_with_underscores = [key for key in Config.QUICK_REPLIES.keys() if '_' in key]
         assert len(keys_with_underscores) > 0, "Should have at least one key with underscores"
         
-        # Test that no_robux exists and has underscores
         assert 'no_robux' in Config.QUICK_REPLIES
         assert Config.QUICK_REPLIES['no_robux']['label'] == 'nofunds'

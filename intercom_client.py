@@ -187,7 +187,6 @@ class IntercomClient:
         if not conversation:
             return None
         
-        # Extract user messages like in the old working code
         user_messages = []
         
         # Initial message from source
@@ -252,11 +251,9 @@ class IntercomClient:
         print(f"Initial body: {initial.get('body', 'No body')[:100]}...")
         
         if initial.get("body"):
-            # Better author handling
             author = initial.get("author", {})
             author_type = author.get("type", "unknown")
             
-            # Try different ways to get author name - Intercom might use different fields
             author_name = author.get("name")
             if not author_name:
                 author_name = author.get("email")
@@ -299,7 +296,6 @@ class IntercomClient:
                     if author_email:
                         author_name = author_email
                     else:
-                        # Use descriptive names for different types
                         if author_type == "lead":
                             author_name = "Lead User"
                         elif author_type == "user":

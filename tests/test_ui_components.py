@@ -32,7 +32,7 @@ class TestTicketView:
         mock_intercom = Mock()
         mock_db = Mock()
         
-        # Mock the asyncio event loop to prevent "no running event loop" error
+        # Mock the asyncio event loop to prevent "no running event loop"
         with patch('asyncio.get_running_loop') as mock_loop:
             mock_future = Mock()
             mock_loop.return_value.create_future.return_value = mock_future
@@ -45,7 +45,7 @@ class TestTicketView:
         mock_intercom = Mock()
         mock_db = Mock()
         
-        # Mock the asyncio event loop to prevent "no running event loop" error
+        # Mock the asyncio event loop to prevent "no running event loop" 
         with patch('asyncio.get_running_loop') as mock_loop:
             mock_future = Mock()
             mock_loop.return_value.create_future.return_value = mock_future
@@ -63,7 +63,7 @@ class TestTicketView:
         mock_intercom = Mock()
         mock_db = Mock()
         
-        # Mock the asyncio event loop to prevent "no running event loop" error
+        # Mock the asyncio event loop to prevent "no running event loop" 
         with patch('asyncio.get_running_loop') as mock_loop:
             mock_future = Mock()
             mock_loop.return_value.create_future.return_value = mock_future
@@ -84,7 +84,7 @@ class TestTicketView:
         mock_intercom = Mock()
         mock_db = Mock()
         
-        # Mock the asyncio event loop to prevent "no running event loop" error
+        # Mock the asyncio event loop to prevent "no running event loop" 
         with patch('asyncio.get_running_loop') as mock_loop:
             mock_future = Mock()
             mock_loop.return_value.create_future.return_value = mock_future
@@ -182,7 +182,7 @@ class TestTicketView:
         mock_intercom = Mock()
         mock_db = Mock()
         
-        # Mock the asyncio event loop to prevent "no running event loop" error
+        # Mock the asyncio event loop to prevent "no running event loop" 
         with patch('asyncio.get_running_loop') as mock_loop:
             mock_future = Mock()
             mock_loop.return_value.create_future.return_value = mock_future
