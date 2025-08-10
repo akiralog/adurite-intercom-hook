@@ -7,7 +7,7 @@ audioop-lts==0.2.2
 cffi==1.17.1
 colorama==0.4.6
 coverage==7.10.3
-discord.py==2.5.2
+discord.py[voice]
 frozenlist==1.7.0
 idna==3.10
 iniconfig==2.1.0
