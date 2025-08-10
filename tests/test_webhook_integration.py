@@ -59,5 +59,10 @@ async def test_environment_variables():
     assert True
 
 def test_dotenv_file_exists():
-    """Test that .env file exists"""
+    """Test that .env file exists (skipped in CI)"""
+    # Skip this test in CI environment where .env file shouldn't exist
+    if os.getenv('CI'):
+        pytest.skip("Skipping .env file check in CI environment")
+    
+    # Only run this test locally where .env file should exist
     assert os.path.exists('.env'), ".env file not found - please create one with your configuration"
