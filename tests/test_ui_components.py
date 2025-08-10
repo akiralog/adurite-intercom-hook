@@ -3,7 +3,13 @@ Tests for the ui_components module
 """
 import pytest
 import discord
+import sys
+from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock, AsyncMock
+
+# Add the parent directory to Python path so we can import modules
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 from ui_components import TicketView
 import asyncio
 
