@@ -46,49 +46,82 @@ class IntercomTicketBot(commands.Bot):
             await ctx.send("🔄 Syncing tickets with Intercom...")
             
             try:
+                logger.info("🔍 Starting sync process...")
+                
                 # Get open conversations
+                logger.info("📡 Fetching open conversations from Intercom...")
                 conversations = await self.intercom_client.get_open_conversations()
+                logger.info(f"📊 Found {len(conversations)} open conversations")
                 
                 # Filter for fresh conversations only
+                logger.info("🔍 Filtering for fresh conversations...")
                 fresh_conversations = []
-                for conv in conversations:
+                for i, conv in enumerate(conversations):
+                    logger.info(f"🔍 Checking conversation {i+1}/{len(conversations)}: ID={conv['id']}, Type={type(conv['id'])}")
                     if await self.intercom_client.is_conversation_fresh(conv['id']):
                         fresh_conversations.append(conv)
+                        logger.info(f"✅ Conversation {conv['id']} is fresh")
+                    else:
+                        logger.info(f"❌ Conversation {conv['id']} is not fresh")
+                
+                logger.info(f"📋 Found {len(fresh_conversations)} fresh conversations")
                 
                 # Clear existing messages in the channel
+                logger.info("🧹 Clearing existing messages in Discord channel...")
                 channel = self.get_channel(Config.DISCORD_CHANNEL_ID)
                 if channel:
                     async for message in channel.history(limit=100):
                         await message.delete()
+                    logger.info("✅ Cleared existing messages")
                 
                 # Post fresh tickets
-                for conv in fresh_conversations:
+                logger.info("📝 Posting fresh tickets to Discord...")
+                for i, conv in enumerate(fresh_conversations):
+                    logger.info(f"📝 Processing ticket {i+1}/{len(fresh_conversations)}: ID={conv['id']}")
+                    
                     conversation_data = await self.intercom_client.get_conversation_summary(conv['id'])
                     if conversation_data:
+                        logger.info(f"✅ Got conversation data for {conv['id']}")
+                        
                         embed = TicketEmbed.create_ticket_embed(conversation_data)
+                        logger.info(f"✅ Created embed for {conv['id']}")
                         
                         from ui_components import TicketView
+                        logger.info(f"🔧 Creating TicketView for {conv['id']}...")
+                        logger.info(f"   ticket_id: {str(conv['id'])} (type: {type(str(conv['id']))})")
+                        logger.info(f"   conversation_id: {str(conv['id'])} (type: {type(str(conv['id']))})")
+                        
                         view = TicketView(
-                            str(conv['id']),
-                            conv['id'],
+                            str(conv['id']),  # ticket_id as string
+                            str(conv['id']),  # conversation_id as string
                             self.intercom_client,
                             self.db_manager
                         )
+                        logger.info(f"✅ Created TicketView for {conv['id']}")
                         
                         message = await channel.send(embed=embed, view=view)
+                        logger.info(f"✅ Posted message to Discord for {conv['id']}")
                         
                         # Store in database
+                        logger.info(f"💾 Storing ticket {conv['id']} in database...")
                         await self.db_manager.add_ticket(
-                            str(conv['id']),
-                            message.id,
-                            'open',
-                            conv['id']
+                            str(conv['id']),  # ticket_id as string
+                            message.id,        # message_id
+                            'open',            # status
+                            str(conv['id'])    # conversation_id as string
                         )
+                        logger.info(f"✅ Stored ticket {conv['id']} in database")
+                    else:
+                        logger.warning(f"⚠️ No conversation data for {conv['id']}")
                 
                 await ctx.send(f"✅ Synced {len(fresh_conversations)} fresh tickets!")
+                logger.info(f"🎉 Sync completed successfully! Synced {len(fresh_conversations)} tickets")
                 
             except Exception as e:
-                logger.error(f"Error syncing tickets: {e}")
+                logger.error(f"❌ Error syncing tickets: {e}")
+                logger.error(f"❌ Error type: {type(e)}")
+                import traceback
+                logger.error(f"❌ Full traceback: {traceback.format_exc()}")
                 await ctx.send(f"❌ Error syncing tickets: {str(e)}")
         
         @self.command(name='status')
