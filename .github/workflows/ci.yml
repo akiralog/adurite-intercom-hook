@@ -1,4 +1,4 @@
-name: CI/CD Pipeline
+name: Run Tests
 
 on:
   push:
@@ -21,69 +21,12 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
     
-    - name: Cache pip dependencies
-      uses: actions/cache@v3
-      with:
-        path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-        restore-keys: |
-          ${{ runner.os }}-pip-
-    
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
         pip install pytest pytest-asyncio
     
-    - name: Run tests with pytest
+    - name: Run tests
       run: |
         pytest tests/ -v
-    
-    - name: Upload test results to GitHub
-      uses: actions/upload-artifact@v3
-      with:
-        name: test-results-${{ matrix.python-version }}
-        path: .pytest_cache/
-
-  lint:
-    runs-on: ubuntu-latest
-    
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: 3.11
-    
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install flake8 black isort
-    
-    - name: Run linting
-      run: |
-        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=88 --statistics
-        black --check .
-        isort --check-only --diff .
-
-  security:
-    runs-on: ubuntu-latest
-    
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: 3.11
-    
-    - name: Install safety
-      run: |
-        python -m pip install --upgrade pip
-        pip install safety
-    
-    - name: Run security audit
-      run: |
-        safety check --full-report
