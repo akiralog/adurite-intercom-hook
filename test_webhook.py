@@ -21,30 +21,7 @@ async def test_webhook():
     test_data = {
         "topic": "conversation.user.created",
         "data": {
-            "item": {
-                "id": "test_conversation_123",
-                "type": "conversation",
-                "created_at": 1234567890,
-                "updated_at": 1234567890,
-                "user": {
-                    "id": "test_user_456",
-                    "name": "Test User",
-                    "email": "test@example.com"
-                },
-                "conversation_parts": {
-                    "conversation_parts": [
-                        {
-                            "id": "test_part_789",
-                            "type": "comment",
-                            "body": "This is a test ticket message for testing the webhook functionality.",
-                            "author": {
-                                "id": "test_user_456",
-                                "type": "user"
-                            }
-                        }
-                    ]
-                }
-            }
+            "id": "test_conversation_123"
         }
     }
     
