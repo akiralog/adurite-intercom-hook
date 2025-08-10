@@ -12,6 +12,11 @@ class Config:
     WEBHOOK_HOST = 'localhost'
     WEBHOOK_PORT = 8000
     
+    # Rate Limiting Configuration
+    RATE_LIMIT_MIN_INTERVAL = float(os.getenv('RATE_LIMIT_MIN_INTERVAL', '0.1'))  # Minimum seconds between requests (10 req/sec)
+    RATE_LIMIT_BATCH_SIZE = int(os.getenv('RATE_LIMIT_BATCH_SIZE', '5'))          # Number of conversations to process in parallel
+    RATE_LIMIT_BATCH_DELAY = float(os.getenv('RATE_LIMIT_BATCH_DELAY', '0.5'))    # Delay between batches in seconds
+    
     QUICK_REPLIES = {
         "no_robux": {
             "label": "nofunds",
