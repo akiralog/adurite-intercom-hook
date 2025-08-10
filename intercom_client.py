@@ -121,9 +121,9 @@ class IntercomClient:
                     # Log error for debugging
                     try:
                         error_data = await response.text()
-                        print(f"❌ Failed to send reply. Status: {response.status}, Error: {error_data}")
+                        print(f"Failed to send reply. Status: {response.status}, Error: {error_data}")
                     except:
-                        print(f"❌ Failed to send reply. Status: {response.status}")
+                        print(f"Failed to send reply. Status: {response.status}")
                     return False
     
     async def close_conversation(self, conversation_id: str, admin_id: Optional[str] = None) -> bool:
@@ -168,7 +168,7 @@ class IntercomClient:
                     conversation_parts = data.get("conversation_parts", {}).get("conversation_parts", [])
                     return conversation_parts
                 else:
-                    print(f"❌ Failed to get conversation parts: {response.status}")
+                    print(f"Failed to get conversation parts: {response.status}")
                     return []
     
     async def is_conversation_fresh(self, conversation_id: str) -> bool:
@@ -222,34 +222,34 @@ class IntercomClient:
     
     async def get_conversation_thread(self, conversation_id: str) -> Optional[Dict]:
         """Get the full conversation thread including all messages (user and admin)"""
-        print(f"🔍 Fetching conversation thread for: {conversation_id}")
+        print(f"Fetching conversation thread for: {conversation_id}")
         
         conversation = await self.get_conversation(conversation_id)
         if not conversation:
-            print(f"❌ Could not fetch conversation: {conversation_id}")
+            print(f"Could not fetch conversation: {conversation_id}")
             return None
         
         # Debug: Print conversation structure
-        print(f"📋 Conversation keys: {list(conversation.keys())}")
-        print(f"📋 Source keys: {list(conversation.get('source', {}).keys())}")
+        print(f"Conversation keys: {list(conversation.keys())}")
+        print(f"Source keys: {list(conversation.get('source', {}).keys())}")
         
         # Get all conversation parts for the full thread
         parts = await self.get_conversation_parts(conversation_id)
-        print(f"📝 Found {len(parts)} conversation parts")
+        print(f"Found {len(parts)} conversation parts")
         
         # Debug: Print parts structure
         if parts:
-            print(f"📋 First part keys: {list(parts[0].keys())}")
-            print(f"📋 First part author: {parts[0].get('author', {})}")
+            print(f"First part keys: {list(parts[0].keys())}")
+            print(f"First part author: {parts[0].get('author', {})}")
         
         # Build the full conversation thread
         thread_messages = []
         
         # Add initial message if it exists
         initial = conversation.get("source", {})
-        print(f"📋 Initial message keys: {list(initial.keys())}")
-        print(f"📋 Initial author: {initial.get('author', {})}")
-        print(f"📋 Initial body: {initial.get('body', 'No body')[:100]}...")
+        print(f"Initial message keys: {list(initial.keys())}")
+        print(f"Initial author: {initial.get('author', {})}")
+        print(f"Initial body: {initial.get('body', 'No body')[:100]}...")
         
         if initial.get("body"):
             # Better author handling
@@ -273,8 +273,8 @@ class IntercomClient:
                 else:
                     author_name = f"Unknown {author_type.title()}"
             
-            print(f"📋 Final author name: {author_name}")
-            print(f"📋 Author type: {author_type}")
+            print(f"Final author name: {author_name}")
+            print(f"Author type: {author_type}")
             
             body = self._clean_html(initial.get("body", ""))
             if body:
@@ -283,7 +283,7 @@ class IntercomClient:
                     "message": body,
                     "timestamp": initial.get("created_at", "Unknown")
                 })
-                print(f"📤 Added initial message from {author_name} ({author_type})")
+                print(f"Added initial message from {author_name} ({author_type})")
         
         # Add all conversation parts in chronological order
         for i, part in enumerate(parts):
@@ -321,9 +321,9 @@ class IntercomClient:
                         "message": clean_body,
                         "timestamp": part.get("created_at", "Unknown")
                     })
-                    print(f"📤 Added part {i+1}: {author_name} ({author_type}) - {clean_body[:50]}...")
+                    print(f"Added part {i+1}: {author_name} ({author_type}) - {clean_body[:50]}...")
         
-        print(f"📊 Total messages in thread: {len(thread_messages)}")
+        print(f"Total messages in thread: {len(thread_messages)}")
         
         # Format the thread for display
         if thread_messages:
