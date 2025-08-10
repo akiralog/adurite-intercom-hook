@@ -104,7 +104,8 @@ class TicketView(discord.ui.View):
             # Send reply to Intercom
             success = await self.intercom_client.send_reply(
                 self.conversation_id, 
-                config["reply"]
+                config["reply"],
+                Config.INTERCOM_ADMIN_ID
             )
             
             if success:
@@ -137,7 +138,7 @@ class TicketView(discord.ui.View):
     async def close_ticket(self, interaction: discord.Interaction):
         """Close the ticket and clean up"""
         # Close conversation in Intercom
-        success = await self.intercom_client.close_conversation(self.conversation_id)
+        success = await self.intercom_client.close_conversation(self.conversation_id, Config.INTERCOM_ADMIN_ID)
         
         if success:
             # Update database
@@ -173,7 +174,7 @@ class ConfirmationView(discord.ui.View):
     @discord.ui.button(label="Yes, Close Ticket", style=discord.ButtonStyle.danger)
     async def confirm_close(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Confirm ticket closure"""
-        success = await self.intercom_client.close_conversation(self.conversation_id)
+        success = await self.intercom_client.close_conversation(self.conversation_id, Config.INTERCOM_ADMIN_ID)
         
         if success:
             await self.db_manager.update_ticket_status(self.ticket_id, "closed")

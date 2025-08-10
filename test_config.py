@@ -12,8 +12,7 @@ def test_config():
     """Test the bot configuration"""
     print("🔍 Testing Discord Intercom Ticket Bot Configuration...")
     print("=" * 50)
-    
-    # Load environment variables
+
     load_dotenv()
     
     # Test Discord configuration
@@ -44,6 +43,7 @@ def test_config():
     print("\n🌐 Intercom Configuration:")
     intercom_token = os.getenv('INTERCOM_ACCESS_TOKEN')
     intercom_secret = os.getenv('INTERCOM_WEBHOOK_SECRET')
+    intercom_admin_id = os.getenv('INTERCOM_ADMIN_ID')
     
     if intercom_token:
         print("✅ INTERCOM_ACCESS_TOKEN: Set")
@@ -62,6 +62,12 @@ def test_config():
             print("✅ INTERCOM_WEBHOOK_SECRET: Valid format")
     else:
         print("❌ INTERCOM_WEBHOOK_SECRET: Not set")
+    
+    if intercom_admin_id:
+        print("✅ INTERCOM_ADMIN_ID: Set")
+        print(f"✅ INTERCOM_ADMIN_ID: {intercom_admin_id}")
+    else:
+        print("⚠️  INTERCOM_ADMIN_ID: Not set (will use default: 6673256)")
     
     # Test dependencies
     print("\n📦 Dependencies:")
@@ -88,6 +94,7 @@ def test_config():
     print("📋 Configuration Summary:")
     
     required_vars = ['DISCORD_TOKEN', 'DISCORD_CHANNEL_ID', 'INTERCOM_ACCESS_TOKEN', 'INTERCOM_WEBHOOK_SECRET']
+    optional_vars = ['INTERCOM_ADMIN_ID']
     missing_vars = [var for var in required_vars if not os.getenv(var) or os.getenv(var).startswith('your_')]
     
     if not missing_vars:

@@ -1,27 +1,21 @@
 import os
 from dotenv import load_dotenv
 
-# Load environment variables
 load_dotenv()
 
 class Config:
-    # Discord Bot Configuration
     DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
     DISCORD_CHANNEL_ID = int(os.getenv('DISCORD_CHANNEL_ID', 0))
-    
-    # Intercom Configuration
     INTERCOM_ACCESS_TOKEN = os.getenv('INTERCOM_ACCESS_TOKEN')
     INTERCOM_WEBHOOK_SECRET = os.getenv('INTERCOM_WEBHOOK_SECRET')
-    
-    # Webhook Configuration
+    INTERCOM_ADMIN_ID = os.getenv('INTERCOM_ADMIN_ID', '6673256')  # Default admin ID
     WEBHOOK_HOST = 'localhost'
     WEBHOOK_PORT = 8000
     
-    # Quick reply buttons configuration
     QUICK_REPLIES = {
         "no_robux": {
-            "label": "Sorry, we don't sell Robux anymore",
-            "reply": "I apologize, but we no longer sell Robux. Is there anything else I can help you with?",
+            "label": "nofunds",
+            "reply": "I apologize, but we no longer sell Robux.",
             "close_ticket": True
         },
         "out_of_stock": {

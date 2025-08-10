@@ -111,7 +111,6 @@ class IntercomClient:
         """Check if a conversation is fresh (no admin replies)"""
         parts = await self.get_conversation_parts(conversation_id)
         
-        # Check if there are any admin replies
         for part in parts:
             if part.get("part_type") == "comment" and part.get("author", {}).get("type") == "admin":
                 return False
