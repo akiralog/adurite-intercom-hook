@@ -6,4 +6,4 @@
 
 ## 🧪 Testing
 
-[![Tests](https://img.shields.io/badge/tests-20%20passed%20%7C%202%20skipped-brightgreen.svg)](https://github.com/Nikolai/adurite-intercom-hook/actions)
+[![Tests](https://img.shields.io/badge/tests-20%20passed%20%7C%202%20skipped-brightgreen.svg)](https://github.com/nikolai-koenig/adurite-intercom-hook/actions)
