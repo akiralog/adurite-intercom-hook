@@ -16,8 +16,11 @@ class IntercomTicketBot(commands.Bot):
     """Main bot class for handling Intercom tickets"""
     
     def __init__(self):
-        intents = discord.Intents.default()
+        intents = discord.Intents.none()
         intents.message_content = True
+        intents.guilds = True
+        intents.guild_messages = True
+        intents.guild_reactions = True
         
         super().__init__(command_prefix='!', intents=intents)
         
