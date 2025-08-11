@@ -157,6 +157,94 @@ class IntercomTicketBot(commands.Bot):
             except Exception as e:
                 logger.error(f"Error during sync: {str(e)}")
                 await ctx.send(f"❌ Error during sync: {str(e)}")
+        
+        @self.command(name='status')
+        async def status_command(ctx):
+            """Show bot status and ticket count"""
+            try:
+                # Get ticket counts
+                all_tickets = await self.db_manager.get_all_tickets()
+                open_tickets = [t for t in all_tickets if t['status'] == 'open']
+                replied_tickets = [t for t in all_tickets if t['status'] in ['replied', 'admin_replied']]
+                closed_tickets = [t for t in all_tickets if t['status'] == 'closed']
+                
+                embed = discord.Embed(
+                    title="🤖 Bot Status",
+                    color=0x00ff00,
+                    timestamp=discord.utils.utcnow()
+                )
+                
+                embed.add_field(name="📊 Total Tickets", value=len(all_tickets), inline=True)
+                embed.add_field(name="🆕 Open Tickets", value=len(open_tickets), inline=True)
+                embed.add_field(name="💬 Replied Tickets", value=len(replied_tickets), inline=True)
+                embed.add_field(name="✅ Closed Tickets", value=len(closed_tickets), inline=True)
+                embed.add_field(name="🌐 Webhook Status", value="🟢 Active" if self.webhook_runner else "🔴 Inactive", inline=True)
+                
+                embed.set_footer(text="Intercom Ticket Bot")
+                
+                await ctx.send(embed=embed)
+                
+            except Exception as e:
+                logger.error(f"Error getting status: {e}")
+                await ctx.send(f"Error getting status: {str(e)}")
+        
+        @self.command(name='cleanup')
+        async def cleanup_command(ctx):
+            """Clean up old tickets from database"""
+            if not ctx.author.guild_permissions.administrator:
+                await ctx.send("You need administrator permissions to use this command.")
+                return
+            
+            try:
+                await self.db_manager.cleanup_old_tickets(days=30)
+                await ctx.send("Cleaned up tickets older than 30 days!")
+                
+            except Exception as e:
+                logger.error(f"Error cleaning up tickets: {e}")
+                await ctx.send(f"Error cleaning up tickets: {str(e)}")
+        
+        @self.command(name='commands', aliases=['cmds'])
+        async def commands_command(ctx):
+            """Show available commands and their usage (ephemeral)"""
+            embed = discord.Embed(
+                title="🤖 Bot Commands",
+                description="Here are all the available commands:",
+                color=0x0099ff,
+                timestamp=discord.utils.utcnow()
+            )
+            
+            embed.add_field(
+                name="🔄 `!sync`", 
+                value="Sync current open tickets with Discord channel", 
+                inline=False
+            )
+            embed.add_field(
+                name="📊 `!status`", 
+                value="Show bot status and ticket counts", 
+                inline=False
+            )
+            embed.add_field(
+                name="🧹 `!cleanup`", 
+                value="Clean up old tickets from database (30+ days)", 
+                inline=False
+            )
+            embed.add_field(
+                name="📋 `!commands` / `!cmds`", 
+                value="Show this commands list (ephemeral)", 
+                inline=False
+            )
+            
+            # Add ticket actions section
+            embed.add_field(
+                name="🎫 Ticket Actions",
+                value="Each ticket has buttons for:\n• Quick replies (predefined messages)\n• Custom Reply (type your own message)\n• Close Ticket (close the conversation)",
+                inline=False
+            )
+            
+            embed.set_footer(text="All commands require administrator permissions")
+            
+            # Send as ephemeral message (only visible to the user who ran the command)
+            await ctx.send(embed=embed, ephemeral=True)
     
     async def _send_full_conversation_thread(self, channel, conversation_data: Dict, conversation_id: str):
         """Send the full conversation thread to a channel"""
@@ -233,93 +321,6 @@ class IntercomTicketBot(commands.Bot):
             # Add a small delay between embeds to avoid rate limiting
             if i < len(all_groups):
                 await asyncio.sleep(0.5)
-        
-        @self.command(name='status')
-        async def status_command(ctx):
-            """Show bot status and ticket count"""
-            try:
-                # Get ticket counts
-                all_tickets = await self.db_manager.get_all_tickets()
-                open_tickets = [t for t in all_tickets if t['status'] == 'open']
-                replied_tickets = [t for t in all_tickets if t['status'] in ['replied', 'admin_replied']]
-                closed_tickets = [t for t in all_tickets if t['status'] == 'closed']
-                
-                embed = discord.Embed(
-                    title="🤖 Bot Status",
-                    color=0x00ff00,
-                    timestamp=discord.utils.utcnow()
-                )
-                
-                embed.add_field(name="📊 Total Tickets", value=len(all_tickets), inline=True)
-                embed.add_field(name="🆕 Open Tickets", value=len(open_tickets), inline=True)
-                embed.add_field(name="💬 Replied Tickets", value=len(replied_tickets), inline=True)
-                embed.add_field(name="✅ Closed Tickets", value=len(closed_tickets), inline=True)
-                embed.add_field(name="🌐 Webhook Status", value="🟢 Active" if self.webhook_runner else "🔴 Inactive", inline=True)
-                
-                embed.set_footer(text="Intercom Ticket Bot")
-                
-                await ctx.send(embed=embed)
-                
-            except Exception as e:
-                logger.error(f"Error getting status: {e}")
-                await ctx.send(f"Error getting status: {str(e)}")
-        
-        @self.command(name='cleanup')
-        async def cleanup_command(ctx):
-            """Clean up old tickets from database"""
-            if not ctx.author.guild_permissions.administrator:
-                await ctx.send("You need administrator permissions to use this command.")
-                return
-            
-            try:
-                await self.db_manager.cleanup_old_tickets(days=30)
-                await ctx.send("Cleaned up tickets older than 30 days!")
-                
-            except Exception as e:
-                logger.error(f"Error cleaning up tickets: {e}")
-                await ctx.send(f"Error cleaning up tickets: {str(e)}")
-        
-        @self.command(name='commands')
-        async def commands_command(ctx):
-            """Show available commands and their usage"""
-            embed = discord.Embed(
-                title="🤖 Bot Commands",
-                description="Here are all the available commands:",
-                color=0x0099ff,
-                timestamp=discord.utils.utcnow()
-            )
-            
-            embed.add_field(
-                name="🔄 `!sync`", 
-                value="Sync current open tickets with Discord channel", 
-                inline=False
-            )
-            embed.add_field(
-                name="📊 `!status`", 
-                value="Show bot status and ticket counts", 
-                inline=False
-            )
-            embed.add_field(
-                name="🧹 `!cleanup`", 
-                value="Clean up old tickets from database (30+ days)", 
-                inline=False
-            )
-            embed.add_field(
-                name="📋 `!commands`", 
-                value="Show this commands list", 
-                inline=False
-            )
-            
-            # Add ticket actions section
-            embed.add_field(
-                name="🎫 Ticket Actions",
-                value="Each ticket has buttons for:\n• Quick replies (predefined messages)\n• ✏️ Custom Reply (type your own message)\n• Close Ticket (close the conversation)",
-                inline=False
-            )
-            
-            embed.set_footer(text="All commands require administrator permissions")
-            
-            await ctx.send(embed=embed)
     
     async def setup_hook(self):
         """Setup hook called when bot is starting"""
@@ -336,6 +337,14 @@ class IntercomTicketBot(commands.Bot):
     async def on_ready(self):
         """Called when bot is ready"""
         logger.info(f'Bot is ready! Logged in as {self.user}')
+        
+        # Set bot status to show !cmds command
+        await self.change_presence(
+            activity=discord.Activity(
+                type=discord.ActivityType.playing,
+                name="!cmds"
+            )
+        )
         
         # Get the target channel
         channel = self.get_channel(Config.DISCORD_CHANNEL_ID)
@@ -369,8 +378,8 @@ class IntercomTicketBot(commands.Bot):
             color=0x00ff00,
             timestamp=discord.utils.utcnow()
         )
-        embed.add_field(name="Commands", value="`!sync`, `!status`, `!cleanup`, `!commands`", inline=False)
-        embed.add_field(name="Ticket Actions", value="Quick replies, custom replies, and ticket management", inline=False)
+        # embed.add_field(name="Commands", value="`!sync`, `!status`, `!cleanup`, `!commands` (or `!cmds`)", inline=False)
+        # embed.add_field(name="Ticket Actions", value="Quick replies, custom replies, and ticket management", inline=False)
         embed.set_footer(text="Intercom Ticket Bot")
         
         await channel.send(embed=embed)
