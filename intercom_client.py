@@ -26,6 +26,14 @@ class IntercomClient:
         # Remove HTML tags
         clean_text = re.sub(r'<[^>]+>', '', html_content)
         
+        # Decode common HTML entities
+        import html
+        try:
+            clean_text = html.unescape(clean_text)
+        except Exception:
+            # Fallback to manual replacement if html.unescape fails
+            clean_text = clean_text.replace('&gt;', '>').replace('&lt;', '<').replace('&amp;', '&')
+        
         # Clean up extra whitespace and newlines
         clean_text = re.sub(r'\s+', ' ', clean_text)
         clean_text = clean_text.strip()

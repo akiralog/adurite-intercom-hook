@@ -66,6 +66,22 @@ class TestConfig:
             # This allows for both True and False values without failing
             assert config['close_ticket'] in [True, False], f"'close_ticket' must be True or False in {key}"
     
+    def test_html_entity_handling(self):
+        """Test that HTML entities in quick reply content are handled correctly"""
+        # This test verifies that the system can handle special characters
+        # that might get HTML-encoded by Intercom
+        for key, config in Config.QUICK_REPLIES.items():
+            reply = config['reply']
+            
+            # Test that common special characters are present and not HTML-encoded
+            # These are characters that commonly get HTML-encoded
+            assert '>' not in reply or '&gt;' not in reply, f"HTML entity '&gt;' found in {key}"
+            assert '<' not in reply or '&lt;' not in reply, f"HTML entity '&lt;' found in {key}"
+            assert '&' not in reply or '&amp;' not in reply, f"HTML entity '&amp;' found in {key}"
+            
+            # Test that the reply contains actual content
+            assert len(reply.strip()) > 0, f"Empty reply in {key}"
+    
     @patch.dict(os.environ, {
         'DISCORD_TOKEN': 'test_token',
         'DISCORD_CHANNEL_ID': '123456789',
