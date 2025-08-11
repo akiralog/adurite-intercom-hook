@@ -20,8 +20,8 @@ class Config:
     QUICK_REPLIES = {
         "no_robux": {
             "label": "nofunds",
-            "reply": "I apologize, but we no longer sell Robux.",
-            "close_ticket": True
+            "reply": "Sorry, but we don't sell Robux anymore.",
+            "close_ticket": False
         },
         # "out_of_stock": {
         #     "label": "Item out of stock",
