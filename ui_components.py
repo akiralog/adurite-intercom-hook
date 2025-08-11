@@ -1,7 +1,7 @@
 import discord
 import asyncio
 from discord.ext import commands
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 from config import Config
 from intercom_client import IntercomClient
 from database import DatabaseManager
@@ -61,19 +61,14 @@ class CustomReplyModal(discord.ui.Modal, title="Custom Reply"):
     async def show_conversation_thread(self, interaction: discord.Interaction):
         """Show the updated conversation thread"""
         try:
-            print(f"DEBUG: show_conversation_thread called for conversation {self.conversation_id}")
             # Add a small delay to ensure Intercom has processed our reply
             import asyncio
             await asyncio.sleep(2)
-            print(f"DEBUG: Delay completed, fetching conversation thread...")
             
             # Get updated conversation thread data
             conversation_data = await self.intercom_client.get_conversation_thread(self.conversation_id)
-            print(f"DEBUG: Conversation thread data received: {conversation_data is not None}")
-            
             if conversation_data:
-                print(f"DEBUG: Creating thread embed...")
-                # Create thread embed
+                # Create main thread embed
                 thread_embed = discord.Embed(
                     title="📝 Conversation Thread Updated",
                     description="Latest conversation status:",
@@ -99,39 +94,111 @@ class CustomReplyModal(discord.ui.Modal, title="Custom Reply"):
                     inline=True
                 )
                 
-                # Add the full conversation thread
-                body = conversation_data.get('body', 'No content')
-                if len(body) > 1024:
-                    body = body[:1021] + "..."
-                
-                thread_embed.add_field(
-                    name="💬 Full Conversation Thread",
-                    value=body,
-                    inline=False
-                )
-                
-                thread_embed.set_footer(text="Intercom Ticket Bot")
-                
-                # Send thread update (not ephemeral so others can see)
-                print(f"DEBUG: Sending thread update via followup...")
+                # Send the main embed first
                 await interaction.followup.send(
                     "🔄 **Conversation thread updated:**",
                     embed=thread_embed
                 )
-                print(f"DEBUG: Thread update sent successfully")
-            else:
-                print(f"DEBUG: No conversation data received")
+                
+                # Now send the full conversation thread
+                await self._send_conversation_thread(interaction, conversation_data)
+                
         except Exception as e:
-            print(f"ERROR in show_conversation_thread: {str(e)}")
-            import traceback
-            traceback.print_exc()
-            try:
-                await interaction.followup.send(
-                    f"⚠️ Sent reply but couldn't fetch updated thread: {str(e)}",
-                    ephemeral=True
-                )
-            except Exception as followup_error:
-                print(f"ERROR: Could not send followup error message: {followup_error}")
+            await interaction.followup.send(
+                f"⚠️ Sent reply but couldn't fetch updated thread: {str(e)}",
+                ephemeral=True
+            )
+    
+    async def _send_conversation_thread(self, interaction: discord.Interaction, conversation_data: Dict):
+        """Send the full conversation thread, handling long content appropriately"""
+        body = conversation_data.get('body', 'No content')
+        thread_messages = conversation_data.get('thread_messages', [])
+        
+        if not body or body == 'No content':
+            await interaction.followup.send("📭 No conversation content available", ephemeral=True)
+            return
+        
+        # If the thread is short enough, send it in one message
+        if len(body) <= 2000:
+            thread_embed = discord.Embed(
+                title="💬 Full Conversation Thread",
+                description=body,
+                color=0x00ff00,
+                timestamp=discord.utils.utcnow()
+            )
+            thread_embed.set_footer(text="Intercom Ticket Bot")
+            
+            await interaction.followup.send(embed=thread_embed)
+            return
+        
+        # For long threads, split into multiple embeds
+        await self._send_split_conversation_thread(interaction, thread_messages)
+    
+    async def _send_split_conversation_thread(self, interaction: discord.Interaction, thread_messages: List[Dict]):
+        """Send a long conversation thread split across multiple embeds"""
+        if not thread_messages:
+            await interaction.followup.send("📭 No conversation messages available", ephemeral=True)
+            return
+        
+        # Group messages by author for better readability
+        current_author = None
+        current_group = []
+        all_groups = []
+        
+        for msg in thread_messages:
+            author = msg["author"]
+            message = msg["message"]
+            
+            if current_author and current_author != author:
+                if current_group:
+                    all_groups.append((current_author, current_group))
+                current_group = []
+            
+            current_author = author
+            current_group.append(message)
+        
+        # Don't forget the last group
+        if current_author and current_group:
+            all_groups.append((current_author, current_group))
+        
+        # Send each group as a separate embed
+        for i, (author, messages) in enumerate(all_groups, 1):
+            # Create embed for this author's messages
+            author_embed = discord.Embed(
+                title=f"💬 {author}",
+                description="",
+                color=0x00ff00,
+                timestamp=discord.utils.utcnow()
+            )
+            
+            # Format messages for this author
+            if len(messages) == 1:
+                content = messages[0]
+            else:
+                # Multiple messages from same author
+                content = "\n\n".join([f"{j}. {msg}" for j, msg in enumerate(messages, 1)])
+            
+            # Split content if it's too long for Discord
+            if len(content) > 4000:
+                # Split into multiple embeds for this author
+                chunks = [content[j:j+4000] for j in range(0, len(content), 4000)]
+                for j, chunk in enumerate(chunks, 1):
+                    chunk_embed = discord.Embed(
+                        title=f"💬 {author} (Part {j}/{len(chunks)})",
+                        description=chunk,
+                        color=0x00ff00,
+                        timestamp=discord.utils.utcnow()
+                    )
+                    chunk_embed.set_footer(text="Intercom Ticket Bot")
+                    await interaction.followup.send(embed=chunk_embed)
+            else:
+                author_embed.description = content
+                author_embed.set_footer(text="Intercom Ticket Bot")
+                await interaction.followup.send(embed=author_embed)
+            
+            # Add a small delay between embeds to avoid rate limiting
+            if i < len(all_groups):
+                await asyncio.sleep(0.5)
 
 class TicketEmbed:
     """Creates Discord embeds for tickets"""
@@ -244,10 +311,8 @@ class TicketView(discord.ui.View):
     async def quick_reply_callback(self, interaction: discord.Interaction):
         """Handle quick reply button clicks"""
         try:
-            print(f"DEBUG: quick_reply_callback called for interaction {interaction.id}")
             button_id = interaction.data["custom_id"]
             # Parse the button ID: "quick_reply_{key}_{ticket_id}"
-            # We need to extract the key which may contain underscores
             parts = button_id.split("_")
             if len(parts) >= 4:  # quick_reply_{key}_{ticket_id}
                 # Reconstruct the key by joining all parts between "reply" and the ticket_id
@@ -255,24 +320,19 @@ class TicketView(discord.ui.View):
                 action = "_".join(key_parts)
             else:
                 action = parts[2] if len(parts) > 2 else "unknown"
-            print(f"DEBUG: Action extracted: {action}")
             
             if action in Config.QUICK_REPLIES:
                 config = Config.QUICK_REPLIES[action]
-                print(f"DEBUG: Config found: {config}")
                 
                 # Send reply to Intercom
-                print(f"DEBUG: Sending reply to Intercom...")
                 success = await self.intercom_client.send_reply(
                     self.conversation_id, 
                     config["reply"],
                     Config.INTERCOM_ADMIN_ID
                 )
-                print(f"DEBUG: Reply sent to Intercom: {success}")
                 
                 if success:
                     # Update ticket status
-                    print(f"DEBUG: Updating ticket status...")
                     await self.db_manager.update_ticket_status(self.ticket_id, "replied")
                     
                     # Create reply embed
@@ -280,17 +340,14 @@ class TicketView(discord.ui.View):
                     
                     # If this reply should close the ticket, handle it differently
                     if config.get("close_ticket", False):
-                        print(f"DEBUG: Ticket should be closed, handling closure...")
                         # Close conversation in Intercom
                         close_success = await self.intercom_client.close_conversation(self.conversation_id, Config.INTERCOM_ADMIN_ID)
-                        print(f"DEBUG: Conversation closed in Intercom: {close_success}")
                         
                         if close_success:
                             # Update database
                             await self.db_manager.update_ticket_status(self.ticket_id, "closed")
                             
                             # Send confirmation with closure info
-                            print(f"DEBUG: Sending confirmation message...")
                             await interaction.response.send_message(
                                 f"✅ Reply sent and ticket closed successfully!\n\n**Reply:** {config['reply']}",
                                 embed=embed,
@@ -301,9 +358,7 @@ class TicketView(discord.ui.View):
                             try:
                                 await asyncio.sleep(1)
                                 await interaction.message.delete()
-                                print(f"DEBUG: Discord message deleted")
                             except discord.NotFound:
-                                print(f"DEBUG: Discord message already deleted")
                                 pass  # Message already deleted
                         else:
                             await interaction.response.send_message(
@@ -313,7 +368,6 @@ class TicketView(discord.ui.View):
                             )
                     else:
                         # Send confirmation for regular reply
-                        print(f"DEBUG: Sending regular reply confirmation...")
                         await interaction.response.send_message(
                             f"✅ Reply sent successfully!\n\n**Reply:** {config['reply']}",
                             embed=embed,
@@ -321,27 +375,22 @@ class TicketView(discord.ui.View):
                         )
                     
                     # Show updated conversation thread
-                    print(f"DEBUG: Showing updated conversation thread...")
                     await self.show_conversation_thread(interaction)
                 else:
-                    print(f"DEBUG: Failed to send reply to Intercom")
                     await interaction.response.send_message(
                         "❌ Failed to send reply to Intercom. Please try again.",
                         ephemeral=True
                     )
             else:
-                print(f"DEBUG: Action {action} not found in QUICK_REPLIES")
-        except Exception as e:
-            print(f"ERROR in quick_reply_callback: {str(e)}")
-            import traceback
-            traceback.print_exc()
-            try:
                 await interaction.response.send_message(
-                    f"❌ An error occurred: {str(e)}",
+                    f"❌ Unknown quick reply action: {action}",
                     ephemeral=True
                 )
-            except:
-                print(f"ERROR: Could not send error message to user")
+        except Exception as e:
+            await interaction.response.send_message(
+                f"❌ An error occurred: {str(e)}",
+                ephemeral=True
+            )
     
     async def show_conversation_thread(self, interaction: discord.Interaction):
         """Show the updated conversation thread"""
@@ -353,7 +402,7 @@ class TicketView(discord.ui.View):
             # Get updated conversation thread data
             conversation_data = await self.intercom_client.get_conversation_thread(self.conversation_id)
             if conversation_data:
-                # Create thread embed
+                # Create main thread embed
                 thread_embed = discord.Embed(
                     title="📝 Conversation Thread Updated",
                     description="Latest conversation status:",
@@ -379,29 +428,111 @@ class TicketView(discord.ui.View):
                     inline=True
                 )
                 
-                # Add the full conversation thread
-                body = conversation_data.get('body', 'No content')
-                if len(body) > 1024:
-                    body = body[:1021] + "..."
-                
-                thread_embed.add_field(
-                    name="💬 Full Conversation Thread",
-                    value=body,
-                    inline=False
-                )
-                
-                thread_embed.set_footer(text="Intercom Ticket Bot")
-                
-                # Send thread update (not ephemeral so others can see)
+                # Send the main embed first
                 await interaction.followup.send(
                     "🔄 **Conversation thread updated:**",
                     embed=thread_embed
                 )
+                
+                # Now send the full conversation thread
+                await self._send_conversation_thread(interaction, conversation_data)
+                
         except Exception as e:
             await interaction.followup.send(
                 f"⚠️ Sent reply but couldn't fetch updated thread: {str(e)}",
                 ephemeral=True
             )
+    
+    async def _send_conversation_thread(self, interaction: discord.Interaction, conversation_data: Dict):
+        """Send the full conversation thread, handling long content appropriately"""
+        body = conversation_data.get('body', 'No content')
+        thread_messages = conversation_data.get('thread_messages', [])
+        
+        if not body or body == 'No content':
+            await interaction.followup.send("📭 No conversation content available", ephemeral=True)
+            return
+        
+        # If the thread is short enough, send it in one message
+        if len(body) <= 2000:
+            thread_embed = discord.Embed(
+                title="💬 Full Conversation Thread",
+                description=body,
+                color=0x00ff00,
+                timestamp=discord.utils.utcnow()
+            )
+            thread_embed.set_footer(text="Intercom Ticket Bot")
+            
+            await interaction.followup.send(embed=thread_embed)
+            return
+        
+        # For long threads, split into multiple embeds
+        await self._send_split_conversation_thread(interaction, thread_messages)
+    
+    async def _send_split_conversation_thread(self, interaction: discord.Interaction, thread_messages: List[Dict]):
+        """Send a long conversation thread split across multiple embeds"""
+        if not thread_messages:
+            await interaction.followup.send("📭 No conversation messages available", ephemeral=True)
+            return
+        
+        # Group messages by author for better readability
+        current_author = None
+        current_group = []
+        all_groups = []
+        
+        for msg in thread_messages:
+            author = msg["author"]
+            message = msg["message"]
+            
+            if current_author and current_author != author:
+                if current_group:
+                    all_groups.append((current_author, current_group))
+                current_group = []
+            
+            current_author = author
+            current_group.append(message)
+        
+        # Don't forget the last group
+        if current_author and current_group:
+            all_groups.append((current_author, current_group))
+        
+        # Send each group as a separate embed
+        for i, (author, messages) in enumerate(all_groups, 1):
+            # Create embed for this author's messages
+            author_embed = discord.Embed(
+                title=f"💬 {author}",
+                description="",
+                color=0x00ff00,
+                timestamp=discord.utils.utcnow()
+            )
+            
+            # Format messages for this author
+            if len(messages) == 1:
+                content = messages[0]
+            else:
+                # Multiple messages from same author
+                content = "\n\n".join([f"{j}. {msg}" for j, msg in enumerate(messages, 1)])
+            
+            # Split content if it's too long for Discord
+            if len(content) > 4000:
+                # Split into multiple embeds for this author
+                chunks = [content[j:j+4000] for j in range(0, len(content), 4000)]
+                for j, chunk in enumerate(chunks, 1):
+                    chunk_embed = discord.Embed(
+                        title=f"💬 {author} (Part {j}/{len(chunks)})",
+                        description=chunk,
+                        color=0x00ff00,
+                        timestamp=discord.utils.utcnow()
+                    )
+                    chunk_embed.set_footer(text="Intercom Ticket Bot")
+                    await interaction.followup.send(embed=chunk_embed)
+            else:
+                author_embed.description = content
+                author_embed.set_footer(text="Intercom Ticket Bot")
+                await interaction.followup.send(embed=author_embed)
+            
+            # Add a small delay between embeds to avoid rate limiting
+            if i < len(all_groups):
+                await asyncio.sleep(0.5)
     
     async def close_ticket_callback(self, interaction: discord.Interaction):
         """Handle close ticket button click"""
@@ -410,52 +541,36 @@ class TicketView(discord.ui.View):
     async def close_ticket(self, interaction: discord.Interaction):
         """Close the ticket and clean up"""
         try:
-            print(f"DEBUG: close_ticket called for conversation {self.conversation_id}")
             # Close conversation in Intercom
-            print(f"DEBUG: Closing conversation in Intercom...")
             success = await self.intercom_client.close_conversation(self.conversation_id, Config.INTERCOM_ADMIN_ID)
-            print(f"DEBUG: Conversation closed in Intercom: {success}")
             
             if success:
                 # Update database
-                print(f"DEBUG: Updating database...")
                 await self.db_manager.update_ticket_status(self.ticket_id, "closed")
                 
                 # Remove the Discord message
                 try:
-                    print(f"DEBUG: Deleting Discord message...")
                     await interaction.message.delete()
-                    print(f"DEBUG: Discord message deleted successfully")
                 except discord.NotFound:
-                    print(f"DEBUG: Discord message already deleted")
                     pass  # Message already deleted
                 
-                print(f"DEBUG: Sending success response...")
                 await interaction.response.send_message(
                     "✅ Ticket closed successfully!",
                     ephemeral=True
                 )
-                print(f"DEBUG: Success response sent")
             else:
-                print(f"DEBUG: Failed to close ticket in Intercom")
                 await interaction.response.send_message(
                     "❌ Failed to close ticket in Intercom. Please try again.",
                     ephemeral=True
                 )
         except Exception as e:
-            print(f"ERROR in close_ticket: {str(e)}")
-            import traceback
-            traceback.print_exc()
-            try:
-                await interaction.response.send_message(
-                    f"❌ An error occurred while closing ticket: {str(e)}",
-                    ephemeral=True
-                )
-            except Exception as response_error:
-                print(f"ERROR: Could not send error response: {response_error}")
+            await interaction.response.send_message(
+                f"❌ An error occurred while closing the ticket: {str(e)}",
+                ephemeral=True
+            )
 
 class ConfirmationView(discord.ui.View):
-    """View for confirming ticket closure"""
+    """Confirmation view for closing tickets"""
     
     def __init__(self, ticket_id: str, conversation_id: str, 
                  intercom_client: IntercomClient, db_manager: DatabaseManager):
@@ -469,76 +584,38 @@ class ConfirmationView(discord.ui.View):
     async def confirm_close(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Confirm ticket closure"""
         try:
-            print(f"DEBUG: confirm_close called for conversation {self.conversation_id}")
-            print(f"DEBUG: Closing conversation in Intercom...")
+            # Close conversation in Intercom
             success = await self.intercom_client.close_conversation(self.conversation_id, Config.INTERCOM_ADMIN_ID)
-            print(f"DEBUG: Conversation closed in Intercom: {success}")
             
             if success:
-                print(f"DEBUG: Updating database...")
+                # Update database
                 await self.db_manager.update_ticket_status(self.ticket_id, "closed")
                 
                 # Remove the Discord message
                 try:
-                    print(f"DEBUG: Deleting Discord message...")
                     await interaction.message.delete()
-                    print(f"DEBUG: Discord message deleted successfully")
                 except discord.NotFound:
-                    print(f"DEBUG: Discord message already deleted")
-                    pass
+                    pass  # Message already deleted
                 
-                print(f"DEBUG: Sending success response...")
                 await interaction.response.send_message(
                     "✅ Ticket closed successfully!",
                     ephemeral=True
                 )
-                print(f"DEBUG: Success response sent")
             else:
-                print(f"DEBUG: Failed to close ticket in Intercom")
                 await interaction.response.send_message(
-                    "❌ Failed to close ticket. Please try again.",
+                    "❌ Failed to close ticket in Intercom. Please try again.",
                     ephemeral=True
                 )
         except Exception as e:
-            print(f"ERROR in confirm_close: {str(e)}")
-            import traceback
-            traceback.print_exc()
-            try:
-                await interaction.response.send_message(
-                    f"❌ An error occurred while closing ticket: {str(e)}",
-                    ephemeral=True
-                )
-            except Exception as response_error:
-                print(f"ERROR: Could not send error response: {response_error}")
+            await interaction.response.send_message(
+                f"❌ An error occurred while closing the ticket: {str(e)}",
+                ephemeral=True
+            )
     
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
     async def cancel_close(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Cancel ticket closure"""
-        try:
-            print(f"DEBUG: cancel_close called for conversation {self.conversation_id}")
-            print(f"DEBUG: Sending cancellation message...")
-            await interaction.response.send_message(
-                "❌ Ticket closure cancelled.",
-                ephemeral=True
-            )
-            print(f"DEBUG: Cancellation message sent")
-            
-            # Remove the confirmation message
-            try:
-                print(f"DEBUG: Deleting confirmation message...")
-                await interaction.message.delete()
-                print(f"DEBUG: Confirmation message deleted successfully")
-            except discord.NotFound:
-                print(f"DEBUG: Confirmation message already deleted")
-                pass
-        except Exception as e:
-            print(f"ERROR in cancel_close: {str(e)}")
-            import traceback
-            traceback.print_exc()
-            try:
-                await interaction.response.send_message(
-                    f"❌ An error occurred while cancelling: {str(e)}",
-                    ephemeral=True
-                )
-            except Exception as response_error:
-                print(f"ERROR: Could not send error response: {response_error}")
+        await interaction.response.send_message(
+            "❌ Ticket closure cancelled.",
+            ephemeral=True
+        )

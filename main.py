@@ -7,6 +7,7 @@ from database import DatabaseManager
 from intercom_client import IntercomClient
 from webhook_handler import WebhookHandler, start_webhook_server
 from ui_components import TicketEmbed
+from typing import Dict
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -71,11 +72,50 @@ class IntercomTicketBot(commands.Bot):
                 for i, conv in enumerate(fresh_conversations):
                     logger.info(f"Processing ticket {i+1}/{len(fresh_conversations)}: ID={conv['id']}")
                     
-                    conversation_data = await self.intercom_client.get_conversation_summary(conv['id'])
+                    # Get the full conversation thread instead of just a summary
+                    conversation_data = await self.intercom_client.get_conversation_thread(conv['id'])
                     if conversation_data:
-                        logger.info(f"Got conversation data for {conv['id']}")
+                        logger.info(f"Got conversation thread data for {conv['id']}")
                         
-                        embed = TicketEmbed.create_ticket_embed(conversation_data)
+                        # Create embed with the full conversation thread
+                        embed = discord.Embed(
+                            title=f"🎫 New Ticket: {conversation_data.get('subject', 'No Subject')}",
+                            description="**Full conversation thread:**\n\n" + conversation_data.get('body', 'No message content')[:2000] + ("..." if len(conversation_data.get('body', '')) > 2000 else ""),
+                            color=0x00ff00,  # Green for new tickets
+                            timestamp=discord.utils.utcnow()
+                        )
+                        
+                        # Add user information
+                        user = conversation_data.get('user', {})
+                        if user:
+                            embed.add_field(
+                                name="👤 User",
+                                value=f"{user.get('name', 'Unknown')} ({user.get('email', 'No email')})",
+                                inline=True
+                            )
+                        
+                        # Add conversation ID
+                        embed.add_field(
+                            name="🆔 Conversation ID",
+                            value=conversation_data.get('id', 'Unknown'),
+                            inline=True
+                        )
+                        
+                        # Add status and message count
+                        embed.add_field(
+                            name="📊 Status",
+                            value=conversation_data.get('status', 'Unknown'),
+                            inline=True
+                        )
+                        
+                        embed.add_field(
+                            name="💬 Message Count",
+                            value=conversation_data.get('message_count', 0),
+                            inline=True
+                        )
+                        
+                        embed.set_footer(text="Intercom Ticket Bot")
+                        
                         logger.info(f"Created embed for {conv['id']}")
                         
                         from ui_components import TicketView
@@ -94,67 +134,104 @@ class IntercomTicketBot(commands.Bot):
                         message = await channel.send(embed=embed, view=view)
                         logger.info(f"Posted message to Discord for {conv['id']}")
                         
+                        # If the conversation thread is long, send it in a separate message
+                        if len(conversation_data.get('body', '')) > 2000:
+                            await self._send_full_conversation_thread(channel, conversation_data, conv['id'])
+                        
                         # Store in database
                         logger.info(f"Storing ticket {conv['id']} in database...")
                         await self.db_manager.add_ticket(
                             str(conv['id']),  # ticket_id as string
-                            message.id,        # message_id
-                            'open',            # status
-                            str(conv['id'])    # conversation_id as string
+                            message.id,
+                            'open',
+                            str(conv['id'])  # conversation_id as string
                         )
                         logger.info(f"Stored ticket {conv['id']} in database")
                     else:
-                        logger.warning(f"No conversation data for {conv['id']}")
+                        logger.error(f"Could not get conversation thread data for {conv['id']}")
                 
-                await ctx.send(f"✅ Synced {len(fresh_conversations)} fresh tickets!")
-                logger.info(f"🎉 Sync completed successfully! Synced {len(fresh_conversations)} tickets")
-                
-                # Show available commands after sync
-                commands_embed = discord.Embed(
-                    title="📋 Available Commands",
-                    description="Use these commands to manage tickets:",
-                    color=0x00ff00,
-                    timestamp=discord.utils.utcnow()
-                )
-                
-                commands_embed.add_field(
-                    name="🔄 `!sync`", 
-                    value="Sync tickets again", 
-                    inline=True
-                )
-                commands_embed.add_field(
-                    name="📊 `!status`", 
-                    value="Check ticket counts", 
-                    inline=True
-                )
-                commands_embed.add_field(
-                    name="🧹 `!cleanup`", 
-                    value="Clean old tickets", 
-                    inline=True
-                )
-                commands_embed.add_field(
-                    name="📝 `!commands`", 
-                    value="Show all commands and ticket actions", 
-                    inline=True
-                )
-                
-                # Add ticket actions section
-                commands_embed.add_field(
-                    name="🎫 Ticket Actions",
-                    value="Quick replies, custom replies, and ticket management",
-                    inline=False
-                )
-                
-                commands_embed.set_footer(text="Commands are always available - just type them!")
-                
-                await ctx.send(embed=commands_embed)
+                logger.info(f"Sync completed. Posted {len(fresh_conversations)} tickets to Discord.")
+                await ctx.send(f"✅ Sync completed! Posted {len(fresh_conversations)} fresh tickets to Discord.")
                 
             except Exception as e:
-                logger.error(f"Error syncing tickets: {e}")
-                logger.error(f"Error type: {type(e)}")
-                import traceback
-                logger.error(f"Full traceback: {traceback.format_exc()}")
-                await ctx.send(f"Error syncing tickets: {str(e)}")
+                logger.error(f"Error during sync: {str(e)}")
+                await ctx.send(f"❌ Error during sync: {str(e)}")
+    
+    async def _send_full_conversation_thread(self, channel, conversation_data: Dict, conversation_id: str):
+        """Send the full conversation thread to a channel"""
+        thread_messages = conversation_data.get('thread_messages', [])
+        
+        if not thread_messages:
+            return
+        
+        # Send notification
+        notification_embed = discord.Embed(
+            title="📝 Full Conversation Thread",
+            description=f"Complete conversation thread for ticket {conversation_id}:",
+            color=0x0099ff,
+            timestamp=discord.utils.utcnow()
+        )
+        await channel.send(embed=notification_embed)
+        
+        # Group messages by author for better readability
+        current_author = None
+        current_group = []
+        all_groups = []
+        
+        for msg in thread_messages:
+            author = msg["author"]
+            message = msg["message"]
+            
+            if current_author and current_author != author:
+                if current_group:
+                    all_groups.append((current_author, current_group))
+                current_group = []
+            
+            current_author = author
+            current_group.append(message)
+        
+        # Don't forget the last group
+        if current_author and current_group:
+            all_groups.append((current_author, current_group))
+        
+        # Send each group as a separate embed
+        for i, (author, messages) in enumerate(all_groups, 1):
+            # Create embed for this author's messages
+            author_embed = discord.Embed(
+                title=f"💬 {author}",
+                description="",
+                color=0x00ff00,
+                timestamp=discord.utils.utcnow()
+            )
+            
+            # Format messages for this author
+            if len(messages) == 1:
+                content = messages[0]
+            else:
+                # Multiple messages from same author
+                content = "\n\n".join([f"{j}. {msg}" for j, msg in enumerate(messages, 1)])
+            
+            # Split content if it's too long for Discord
+            if len(content) > 4000:
+                # Split into multiple embeds for this author
+                chunks = [content[j:j+4000] for j in range(0, len(content), 4000)]
+                for j, chunk in enumerate(chunks, 1):
+                    chunk_embed = discord.Embed(
+                        title=f"💬 {author} (Part {j}/{len(chunks)})",
+                        description=chunk,
+                        color=0x00ff00,
+                        timestamp=discord.utils.utcnow()
+                    )
+                    chunk_embed.set_footer(text="Intercom Ticket Bot")
+                    await channel.send(embed=chunk_embed)
+            else:
+                author_embed.description = content
+                author_embed.set_footer(text="Intercom Ticket Bot")
+                await channel.send(embed=author_embed)
+            
+            # Add a small delay between embeds to avoid rate limiting
+            if i < len(all_groups):
+                await asyncio.sleep(0.5)
         
         @self.command(name='status')
         async def status_command(ctx):

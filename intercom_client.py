@@ -220,7 +220,7 @@ class IntercomClient:
         }
     
     async def get_conversation_thread(self, conversation_id: str) -> Optional[Dict]:
-        """Get the full conversation thread including all messages (user and admin)"""
+        """Get the full conversation thread including all messages (user and admin) in proper chronological order"""
         print(f"Fetching conversation thread for: {conversation_id}")
         
         conversation = await self.get_conversation(conversation_id)
@@ -228,118 +228,154 @@ class IntercomClient:
             print(f"Could not fetch conversation: {conversation_id}")
             return None
         
-        # Debug: Print conversation structure
-        print(f"Conversation keys: {list(conversation.keys())}")
-        print(f"Source keys: {list(conversation.get('source', {}).keys())}")
-        
         # Get all conversation parts for the full thread
         parts = await self.get_conversation_parts(conversation_id)
         print(f"Found {len(parts)} conversation parts")
-        
-        # Debug: Print parts structure
-        if parts:
-            print(f"First part keys: {list(parts[0].keys())}")
-            print(f"First part author: {parts[0].get('author', {})}")
         
         # Build the full conversation thread
         thread_messages = []
         
         # Add initial message if it exists
         initial = conversation.get("source", {})
-        print(f"Initial message keys: {list(initial.keys())}")
-        print(f"Initial author: {initial.get('author', {})}")
-        print(f"Initial body: {initial.get('body', 'No body')[:100]}...")
-        
         if initial.get("body"):
             author = initial.get("author", {})
             author_type = author.get("type", "unknown")
             
-            author_name = author.get("name")
-            if not author_name:
-                author_name = author.get("email")
-            if not author_name:
-                author_name = author.get("id")
-            if not author_name:
-                # Check if it's a lead/user with different structure
-                if author_type == "lead":
-                    author_name = "Lead User"
-                elif author_type == "user":
-                    author_name = "User"
-                elif author_type == "admin":
-                    author_name = "Admin"
-                else:
-                    author_name = f"Unknown {author_type.title()}"
-            
-            print(f"Final author name: {author_name}")
-            print(f"Author type: {author_type}")
-            
+            author_name = self._get_author_display_name(author, author_type)
             body = self._clean_html(initial.get("body", ""))
             if body:
+                timestamp = initial.get("created_at", "Unknown")
+                timestamp_sort = self._parse_timestamp(timestamp)
+                print(f"Initial message timestamp: '{timestamp}' (type: {type(timestamp)}) -> sort value: {timestamp_sort}")
+                
                 thread_messages.append({
-                    "author": f"{author_name} ({author_type})",
+                    "author": author_name,
+                    "author_type": author_type,
                     "message": body,
-                    "timestamp": initial.get("created_at", "Unknown")
+                    "timestamp": timestamp,
+                    "timestamp_sort": timestamp_sort,
+                    "is_initial": True
                 })
-                print(f"Added initial message from {author_name} ({author_type})")
+                print(f"Added initial message from {author_name}")
         
-        # Add all conversation parts in chronological order
+        # Add all conversation parts
         for i, part in enumerate(parts):
             if part.get("body"):
-                # Extract author information
                 author = part.get("author", {})
                 author_type = author.get("type", "unknown")
                 
-                # Get author name with better fallback logic
-                author_name = author.get("name")
-                if not author_name:
-                    author_email = author.get("email")
-                    if author_email:
-                        author_name = author_email
-                    else:
-                        if author_type == "lead":
-                            author_name = "Lead User"
-                        elif author_type == "user":
-                            author_name = "User"
-                        elif author_type == "admin":
-                            author_name = "Admin"
-                        elif author_type == "bot":
-                            author_name = "Bot"
-                        else:
-                            author_name = f"{author_type.title()} User"
-                
-                # Get message content
+                author_name = self._get_author_display_name(author, author_type)
                 body = part.get("body", "")
                 if body:
-                    # Clean HTML from the message
                     clean_body = self._clean_html(body)
+                    timestamp = part.get("created_at", "Unknown")
+                    timestamp_sort = self._parse_timestamp(timestamp)
+                    print(f"Part {i+1} timestamp: '{timestamp}' (type: {type(timestamp)}) -> sort value: {timestamp_sort}")
+                    
                     thread_messages.append({
-                        "author": f"{author_name} ({author_type})",
+                        "author": author_name,
+                        "author_type": author_type,
                         "message": clean_body,
-                        "timestamp": part.get("created_at", "Unknown")
+                        "timestamp": timestamp,
+                        "timestamp_sort": timestamp_sort,
+                        "is_initial": False
                     })
-                    print(f"Added part {i+1}: {author_name} ({author_type}) - {clean_body[:50]}...")
+                    print(f"Added part {i+1}: {author_name} - {clean_body[:50]}...")
+        
+        # Sort messages by timestamp to ensure proper chronological order
+        try:
+            thread_messages.sort(key=lambda x: x.get("timestamp_sort", 0))
+            print(f"Successfully sorted {len(thread_messages)} messages by timestamp")
+        except Exception as e:
+            print(f"Warning: Failed to sort messages by timestamp: {str(e)}")
+            print("Messages will be displayed in original order")
+            # Log timestamp details for debugging
+            for i, msg in enumerate(thread_messages):
+                print(f"  Message {i+1}: timestamp='{msg.get('timestamp')}' (type: {type(msg.get('timestamp'))}), sort_value={msg.get('timestamp_sort')}")
         
         print(f"Total messages in thread: {len(thread_messages)}")
         
-        # Format the thread for display
+        # Format the thread for display with better conversation flow
         if thread_messages:
-            formatted_thread = []
-            for msg in thread_messages:
-                formatted_thread.append(f"**{msg['author']}:** {msg['message']}")
-            thread_text = "\n\n".join(formatted_thread)
+            formatted_thread = self._format_conversation_thread(thread_messages)
         else:
-            thread_text = "No messages in conversation"
+            formatted_thread = "No messages in conversation"
         
         return {
             "id": conversation.get("id"),
             "status": conversation.get("state"),
             "subject": self._clean_html(initial.get("subject", "No subject")),
-            "body": thread_text,
+            "body": formatted_thread,
             "user": conversation.get("user", {}),
             "created_at": conversation.get("created_at"),
             "updated_at": conversation.get("updated_at"),
-            "message_count": len(thread_messages)
+            "message_count": len(thread_messages),
+            "thread_messages": thread_messages  # Include raw messages for advanced formatting
         }
+    
+    def _get_author_display_name(self, author: Dict, author_type: str) -> str:
+        """Get a consistent display name for an author"""
+        author_name = author.get("name")
+        if not author_name:
+            author_name = author.get("email")
+        if not author_name:
+            author_name = author.get("id")
+        if not author_name:
+            # Provide user-friendly names for different author types
+            if author_type == "lead":
+                author_name = "Lead User"
+            elif author_type == "user":
+                author_name = "User"
+            elif author_type == "admin":
+                author_name = "Admin"
+            elif author_type == "bot":
+                author_name = "Fin (AI Bot)"  # Special name for Intercom's AI bot
+            else:
+                author_name = f"{author_type.title()} User"
+        
+        return author_name
+    
+    def _format_conversation_thread(self, messages: List[Dict]) -> str:
+        """Format conversation thread with better flow and readability"""
+        if not messages:
+            return "No messages in conversation"
+        
+        formatted_parts = []
+        current_author = None
+        current_messages = []
+        
+        for msg in messages:
+            author = msg["author"]
+            message = msg["message"]
+            
+            # If this is a new author, flush the previous group
+            if current_author and current_author != author:
+                formatted_parts.append(self._format_message_group(current_author, current_messages))
+                current_messages = []
+            
+            current_author = author
+            current_messages.append(message)
+        
+        # Don't forget the last group
+        if current_author and current_messages:
+            formatted_parts.append(self._format_message_group(current_author, current_messages))
+        
+        return "\n\n---\n\n".join(formatted_parts)
+    
+    def _format_message_group(self, author: str, messages: List[str]) -> str:
+        """Format a group of messages from the same author"""
+        if len(messages) == 1:
+            return f"**{author}:** {messages[0]}"
+        else:
+            # Multiple messages from same author - group them together
+            formatted_messages = []
+            for i, msg in enumerate(messages, 1):
+                if len(messages) > 1:
+                    formatted_messages.append(f"{i}. {msg}")
+                else:
+                    formatted_messages.append(msg)
+            
+            return f"**{author}:**\n" + "\n".join(formatted_messages)
     
     async def process_conversations_in_batches(self, conversation_ids: List[str], batch_size: int = None) -> List[Dict]:
         """Process multiple conversations in batches to avoid overwhelming the API"""
@@ -368,3 +404,37 @@ class IntercomClient:
                 await asyncio.sleep(Config.RATE_LIMIT_BATCH_DELAY)
         
         return results
+
+    def _parse_timestamp(self, timestamp) -> int:
+        """Parse timestamp into a sortable integer value"""
+        if not timestamp:
+            return 0
+        
+        # If it's already an integer, return it
+        if isinstance(timestamp, int):
+            return timestamp
+        
+        # If it's a string, try to parse it
+        if isinstance(timestamp, str):
+            try:
+                # Try to parse ISO format timestamps
+                import datetime
+                if 'T' in timestamp and ('Z' in timestamp or '+' in timestamp):
+                    # ISO format: "2024-01-01T10:00:00Z" or "2024-01-01T10:00:00+00:00"
+                    dt = datetime.datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                    return int(dt.timestamp())
+                elif timestamp.isdigit():
+                    # Unix timestamp as string
+                    return int(timestamp)
+                else:
+                    # Try to parse other formats
+                    dt = datetime.datetime.fromisoformat(timestamp)
+                    return int(dt.timestamp())
+            except (ValueError, TypeError) as e:
+                # If parsing fails, return 0 (will sort to the beginning)
+                print(f"Warning: Could not parse timestamp '{timestamp}' (error: {str(e)}), using 0")
+                return 0
+        
+        # For any other type, return 0
+        print(f"Warning: Unknown timestamp type '{type(timestamp)}' with value '{timestamp}', using 0")
+        return 0
