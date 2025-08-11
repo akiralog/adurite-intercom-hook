@@ -24,6 +24,7 @@ class IntercomClient:
             return ""
         
         # Remove HTML tags
+        import re
         clean_text = re.sub(r'<[^>]+>', '', html_content)
         
         # Decode common HTML entities
@@ -245,13 +246,20 @@ class IntercomClient:
         
         # Add initial message if it exists
         initial = conversation.get("source", {})
-        if initial.get("body"):
+        if initial.get("body") or initial.get("attachments"):
+            # Debug: Log the structure of the initial message
+            print(f"Debug: Initial message structure: {initial.keys()}")
+            if initial.get("attachments"):
+                print(f"Debug: Initial message has attachments: {initial['attachments']}")
+            
             author = initial.get("author", {})
             author_type = author.get("type", "unknown")
             
             author_name = self._get_author_display_name(author, author_type)
-            body = self._clean_html(initial.get("body", ""))
-            if body:
+            message_content = self._extract_message_content(initial)
+            
+            # Add initial message if it has content OR attachments
+            if message_content:
                 timestamp = initial.get("created_at", "Unknown")
                 timestamp_sort = self._parse_timestamp(timestamp)
                 print(f"Initial message timestamp: '{timestamp}' (type: {type(timestamp)}) -> sort value: {timestamp_sort}")
@@ -259,36 +267,50 @@ class IntercomClient:
                 thread_messages.append({
                     "author": author_name,
                     "author_type": author_type,
-                    "message": body,
+                    "message": message_content,
                     "timestamp": timestamp,
                     "timestamp_sort": timestamp_sort,
-                    "is_initial": True
+                    "is_initial": True,
+                    "part_type": initial.get("part_type", "initial"),
+                    "attachments": initial.get("attachments", [])
                 })
                 print(f"Added initial message from {author_name}")
+            else:
+                print(f"Skipping initial message from {author_name} - no content or attachments to display")
         
         # Add all conversation parts
         for i, part in enumerate(parts):
-            if part.get("body"):
-                author = part.get("author", {})
-                author_type = author.get("type", "unknown")
+            # Debug: Log the structure of this part
+            print(f"Debug: Part {i+1} structure: {part.keys()}")
+            if part.get("attachments"):
+                print(f"Debug: Part {i+1} has attachments: {part['attachments']}")
+            
+            author = part.get("author", {})
+            author_type = author.get("type", "unknown")
+            author_name = self._get_author_display_name(author, author_type)
+            
+            # Handle different types of message content
+            message_content = self._extract_message_content(part)
+            
+            # Add message if it has content OR attachments (don't skip attachment-only messages)
+            if message_content:
+                timestamp = part.get("created_at", "Unknown")
+                timestamp_sort = self._parse_timestamp(timestamp)
+                print(f"Part {i+1} timestamp: '{timestamp}' (type: {type(timestamp)}) -> sort value: {timestamp_sort}")
                 
-                author_name = self._get_author_display_name(author, author_type)
-                body = part.get("body", "")
-                if body:
-                    clean_body = self._clean_html(body)
-                    timestamp = part.get("created_at", "Unknown")
-                    timestamp_sort = self._parse_timestamp(timestamp)
-                    print(f"Part {i+1} timestamp: '{timestamp}' (type: {type(timestamp)}) -> sort value: {timestamp_sort}")
-                    
-                    thread_messages.append({
-                        "author": author_name,
-                        "author_type": author_type,
-                        "message": clean_body,
-                        "timestamp": timestamp,
-                        "timestamp_sort": timestamp_sort,
-                        "is_initial": False
-                    })
-                    print(f"Added part {i+1}: {author_name} - {clean_body[:50]}...")
+                thread_messages.append({
+                    "author": author_name,
+                    "author_type": author_type,
+                    "message": message_content,
+                    "timestamp": timestamp,
+                    "timestamp_sort": timestamp_sort,
+                    "is_initial": False,
+                    "part_type": part.get("part_type", "unknown"),
+                    "attachments": part.get("attachments", [])
+                })
+                print(f"Added part {i+1}: {author_name} - {message_content[:50] if message_content else '[Media content]'}...")
+            else:
+                print(f"Skipping part {i+1} from {author_name} - no content or attachments to display")
         
         # Sort messages by timestamp to ensure proper chronological order
         try:
@@ -446,3 +468,114 @@ class IntercomClient:
         # For any other type, return 0
         print(f"Warning: Unknown timestamp type '{type(timestamp)}' with value '{timestamp}', using 0")
         return 0
+
+    def _extract_message_content(self, part: Dict) -> str:
+        """Extract message content from a conversation part, handling different content types"""
+        print(f"Debug: Extracting content from part: {part.get('part_type', 'unknown')} - body: '{part.get('body', '')}' - attachments: {len(part.get('attachments', []))}")
+        
+        # Skip system messages that don't have user-visible content
+        part_type = part.get("part_type", "")
+        system_message_types = [
+            "language_detection_details",
+            "conversation_attribute_updated_by_admin", 
+            "conversation_attribute_updated_by_user",
+            "conversation_attribute_updated_by_bot",
+            "conversation_attribute_updated_by_team",
+            "conversation_attribute_updated_by_workspace",
+            "conversation_attribute_updated_by_system"
+        ]
+        
+        if part_type in system_message_types:
+            print(f"Debug: Skipping system message type: {part_type}")
+            return None  # This will cause the message to be filtered out
+        
+        # Check for text body first (this will now handle HTML with images)
+        body = part.get("body", "")
+        if body and body.strip() and body.strip() != "None":
+            # Check if this contains images first
+            if '<img' in body:
+                print(f"Debug: Found HTML with images, extracting directly")
+                import re
+                img_pattern = r'<img[^>]+src=["\']([^"\']+)["\'][^>]*>'
+                img_matches = re.findall(img_pattern, body)
+                
+                if img_matches:
+                    image_links = []
+                    for img_src in img_matches:
+                        # Extract filename from URL
+                        filename = img_src.split('/')[-1].split('?')[0]
+                        if filename and '.' in filename:
+                            clean_filename = filename.replace('_', ' ').replace('-', ' ').title()
+                        else:
+                            clean_filename = 'Image'
+                        
+                        print(f"Debug: Creating link for image: '{clean_filename}' -> '{img_src[:50]}...'")
+                        # Create clickable link
+                        image_links.append(f"📷 [{clean_filename}]({img_src})")
+                    
+                    result = " | ".join(image_links)
+                    print(f"Debug: Created image links: '{result}'")
+                    return result
+            
+            # If no images, clean the HTML normally
+            clean_body = self._clean_html(body)
+            print(f"Debug: Cleaned body result: '{clean_body[:100]}...'")
+            return clean_body
+        
+        # Check for attachments (images, files, etc.)
+        attachments = part.get("attachments", [])
+        if attachments:
+            print(f"Debug: Found {len(attachments)} attachments")
+            attachment_descriptions = []
+            for i, attachment in enumerate(attachments):
+                print(f"Debug: Attachment {i+1}: {attachment}")
+                attachment_type = attachment.get("type", "unknown")
+                if attachment_type == "image":
+                    # For images, show a descriptive message with URL if available
+                    image_url = attachment.get("url", "")
+                    image_name = attachment.get("name", "Unnamed image")
+                    if image_url:
+                        attachment_descriptions.append(f"📷 [{image_name}]({image_url})")
+                    else:
+                        attachment_descriptions.append(f"📷 {image_name}")
+                elif attachment_type == "file":
+                    # For files, show file info
+                    file_name = attachment.get("name", "Unnamed file")
+                    file_size = attachment.get("size", 0)
+                    if file_size:
+                        # Convert bytes to human readable format
+                        if file_size < 1024:
+                            size_str = f"{file_size} B"
+                        elif file_size < 1024 * 1024:
+                            size_str = f"{file_size // 1024} KB"
+                        else:
+                            size_str = f"{file_size // (1024 * 1024)} MB"
+                        attachment_descriptions.append(f"📎 {file_name} ({size_str})")
+                    else:
+                        attachment_descriptions.append(f"📎 {file_name}")
+                else:
+                    # For other attachment types
+                    attachment_descriptions.append(f"📎 {attachment.get('name', 'Attachment')}")
+            
+            if attachment_descriptions:
+                result = " | ".join(attachment_descriptions)
+                print(f"Debug: Using attachment content: '{result}'")
+                return result
+        
+        # Check for other content types
+        if part_type == "comment":
+            # Comment without body might be an image or other media
+            if attachments:
+                return "[Media content]"
+            else:
+                return "[Comment]"
+        elif part_type == "assignment":
+            return "[Conversation assigned]"
+        elif part_type == "close":
+            return "[Conversation closed]"
+        elif part_type == "open":
+            return "[Conversation opened]"
+        
+        # If we can't determine content, return None to filter it out
+        print(f"Debug: No meaningful content found, filtering out this message")
+        return None

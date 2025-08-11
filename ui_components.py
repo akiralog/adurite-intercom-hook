@@ -240,6 +240,120 @@ class TicketEmbed:
             inline=True
         )
         
+        # Add media information if there are attachments
+        thread_messages = conversation_data.get('thread_messages', [])
+        if thread_messages:
+            media_count = 0
+            image_count = 0
+            file_count = 0
+            all_attachments = []
+            all_images = []  # Track images from HTML content
+            
+            for msg in thread_messages:
+                attachments = msg.get('attachments', [])
+                for attachment in attachments:
+                    media_count += 1
+                    if attachment.get('type') == 'image':
+                        image_count += 1
+                    elif attachment.get('type') == 'file':
+                        file_count += 1
+                    
+                    # Collect all attachment details for the embed
+                    all_attachments.append({
+                        'type': attachment.get('type', 'unknown'),
+                        'name': attachment.get('name', 'Unnamed'),
+                        'size': attachment.get('size', 0),
+                        'url': attachment.get('url', ''),
+                        'author': msg.get('author', 'Unknown')
+                    })
+                
+                # Also check for images in the message content (from HTML)
+                message_content = msg.get('message', '')
+                if '📷' in message_content:
+                    # Extract image information from the message
+                    image_parts = message_content.split('📷')
+                    for part in image_parts[1:]:  # Skip first empty part
+                        if part.strip():
+                            image_name = part.strip().split(' | ')[0] if ' | ' in part else part.strip()
+                            all_images.append({
+                                'type': 'image',
+                                'name': image_name,
+                                'author': msg.get('author', 'Unknown'),
+                                'message': message_content
+                            })
+                            image_count += 1
+                            media_count += 1
+            
+            if media_count > 0:
+                # Add summary field
+                media_info = []
+                if image_count > 0:
+                    media_info.append(f"📷 {image_count} image(s)")
+                if file_count > 0:
+                    media_info.append(f"📎 {file_count} file(s)")
+                if media_count > (image_count + file_count):
+                    media_info.append(f"📎 {media_count - (image_count + file_count)} other(s)")
+                
+                embed.add_field(
+                    name="📎 Media Content",
+                    value=" | ".join(media_info),
+                    inline=False
+                )
+                
+                # Add detailed attachments section
+                attachment_details = []
+                
+                # Add regular attachments first
+                for i, attachment in enumerate(all_attachments[:3]):  # Limit to first 3 for embed space
+                    if attachment['type'] == 'image':
+                        attachment_details.append(f"📷 **{attachment['name']}** (by {attachment['author']})")
+                    elif attachment['type'] == 'file':
+                        size_str = ""
+                        if attachment['size']:
+                            if attachment['size'] < 1024:
+                                size_str = f" ({attachment['size']} B)"
+                            elif attachment['size'] < 1024 * 1024:
+                                size_str = f" ({attachment['size'] // 1024} KB)"
+                            else:
+                                size_str = f" ({attachment['size'] // (1024 * 1024)} MB)"
+                        attachment_details.append(f"📎 **{attachment['name']}**{size_str} (by {attachment['author']})")
+                    else:
+                        attachment_details.append(f"📎 **{attachment['name']}** (by {attachment['author']})")
+                
+                # Add images from HTML content
+                for i, image in enumerate(all_images[:2]):  # Limit to first 2 HTML images
+                    # Check if the message contains clickable links
+                    message_content = image['message']
+                    if '[' in message_content and '](' in message_content:
+                        # Extract the clickable link format
+                        import re
+                        link_pattern = r'📷 \[([^\]]+)\]\(([^)]+)\)'
+                        matches = re.findall(link_pattern, message_content)
+                        if matches:
+                            for filename, url in matches:
+                                attachment_details.append(f"📷 **[{filename}]({url})** (by {image['author']})")
+                        else:
+                            attachment_details.append(f"📷 **{image['name']}** (by {image['author']})")
+                    else:
+                        attachment_details.append(f"📷 **{image['name']}** (by {image['author']})")
+                
+                if len(all_attachments) + len(all_images) > 5:
+                    attachment_details.append(f"... and {len(all_attachments) + len(all_images) - 5} more")
+                
+                embed.add_field(
+                    name="📎 Attachments",
+                    value="\n".join(attachment_details),
+                    inline=False
+                )
+                
+                # Add note about viewing images with better instructions
+                if image_count > 0:
+                    embed.add_field(
+                        name="ℹ️ Viewing Images",
+                        value="Click on the image names above to view them in your browser. Images cannot be displayed directly in Discord.",
+                        inline=False
+                    )
+        
         embed.set_footer(text="Intercom Ticket Bot")
         return embed
     
