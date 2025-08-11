@@ -9,12 +9,14 @@ from database import DatabaseManager
 class CustomReplyModal(discord.ui.Modal, title="Custom Reply"):
     """Modal for custom reply input"""
     
-    def __init__(self, conversation_id: str, intercom_client: IntercomClient, db_manager: DatabaseManager, ticket_id: str):
+    def __init__(self, conversation_id: str, intercom_client: IntercomClient, db_manager: DatabaseManager, ticket_id: str, ticket_view=None):
         super().__init__()
         self.conversation_id = conversation_id
         self.intercom_client = intercom_client
         self.db_manager = db_manager
         self.ticket_id = ticket_id
+        self.ticket_view = ticket_view  # Reference to the parent TicketView for cleanup
+        self.related_messages = []  # Track messages sent by this modal
         
         self.reply_text = discord.ui.TextInput(
             label="Your Reply",
@@ -24,6 +26,26 @@ class CustomReplyModal(discord.ui.Modal, title="Custom Reply"):
             max_length=1000
         )
         self.add_item(self.reply_text)
+    
+    def add_related_message(self, message):
+        """Add a message to the list of related messages to clean up later"""
+        self.related_messages.append(message)
+        # Also add to the parent TicketView if available
+        if self.ticket_view:
+            self.ticket_view.add_related_message(message)
+    
+    async def cleanup_related_messages(self):
+        """Clean up all related messages sent by this modal"""
+        for message in self.related_messages:
+            try:
+                await message.delete()
+            except discord.NotFound:
+                pass  # Message already deleted
+            except Exception as e:
+                print(f"Warning: Could not delete related message {message.id}: {str(e)}")
+        
+        # Clear the list
+        self.related_messages.clear()
     
     async def on_submit(self, interaction: discord.Interaction):
         """Handle modal submission"""
@@ -44,19 +66,21 @@ class CustomReplyModal(discord.ui.Modal, title="Custom Reply"):
             embed = TicketEmbed.create_reply_embed(reply_text, self.conversation_id)
             
             # Send confirmation
-            await interaction.response.send_message(
+            confirmation_message = await interaction.response.send_message(
                 f"✅ Custom reply sent successfully!\n\n**Reply:** {reply_text}",
                 embed=embed,
                 ephemeral=True
             )
+            self.add_related_message(confirmation_message)
             
             # Show updated conversation thread
             await self.show_conversation_thread(interaction)
         else:
-            await interaction.response.send_message(
+            error_message = await interaction.response.send_message(
                 "❌ Failed to send reply to Intercom. Please try again.",
                 ephemeral=True
             )
+            self.add_related_message(error_message)
     
     async def show_conversation_thread(self, interaction: discord.Interaction):
         """Show the updated conversation thread"""
@@ -65,49 +89,24 @@ class CustomReplyModal(discord.ui.Modal, title="Custom Reply"):
             import asyncio
             await asyncio.sleep(2)
             
+            # Check if the ticket is still open before showing the thread
+            ticket_status = await self.db_manager.get_ticket_status(self.ticket_id)
+            if ticket_status == "closed":
+                # Ticket was closed (probably by a quick reply), don't show thread
+                return
+            
             # Get updated conversation thread data
             conversation_data = await self.intercom_client.get_conversation_thread(self.conversation_id)
             if conversation_data:
-                # Create main thread embed
-                thread_embed = discord.Embed(
-                    title="📝 Conversation Thread Updated",
-                    description="Latest conversation status:",
-                    color=0x0099ff,
-                    timestamp=discord.utils.utcnow()
-                )
-                
-                thread_embed.add_field(
-                    name="🆔 Conversation ID",
-                    value=self.conversation_id,
-                    inline=True
-                )
-                
-                thread_embed.add_field(
-                    name="📊 Status",
-                    value=conversation_data.get('status', 'Unknown'),
-                    inline=True
-                )
-                
-                thread_embed.add_field(
-                    name="💬 Message Count",
-                    value=conversation_data.get('message_count', 0),
-                    inline=True
-                )
-                
-                # Send the main embed first
-                await interaction.followup.send(
-                    "🔄 **Conversation thread updated:**",
-                    embed=thread_embed
-                )
-                
-                # Now send the full conversation thread
+                # Send the full conversation thread directly (no duplicate status message)
                 await self._send_conversation_thread(interaction, conversation_data)
                 
         except Exception as e:
-            await interaction.followup.send(
+            error_message = await interaction.followup.send(
                 f"⚠️ Sent reply but couldn't fetch updated thread: {str(e)}",
                 ephemeral=True
             )
+            self.add_related_message(error_message)
     
     async def _send_conversation_thread(self, interaction: discord.Interaction, conversation_data: Dict):
         """Send the full conversation thread, handling long content appropriately"""
@@ -115,7 +114,8 @@ class CustomReplyModal(discord.ui.Modal, title="Custom Reply"):
         thread_messages = conversation_data.get('thread_messages', [])
         
         if not body or body == 'No content':
-            await interaction.followup.send("📭 No conversation content available", ephemeral=True)
+            message = await interaction.followup.send("📭 No conversation content available", ephemeral=True)
+            self.add_related_message(message)
             return
         
         # If the thread is short enough, send it in one message
@@ -128,7 +128,8 @@ class CustomReplyModal(discord.ui.Modal, title="Custom Reply"):
             )
             thread_embed.set_footer(text="Intercom Ticket Bot")
             
-            await interaction.followup.send(embed=thread_embed)
+            message = await interaction.followup.send(embed=thread_embed)
+            self.add_related_message(message)
             return
         
         # For long threads, split into multiple embeds
@@ -137,7 +138,8 @@ class CustomReplyModal(discord.ui.Modal, title="Custom Reply"):
     async def _send_split_conversation_thread(self, interaction: discord.Interaction, thread_messages: List[Dict]):
         """Send a long conversation thread split across multiple embeds"""
         if not thread_messages:
-            await interaction.followup.send("📭 No conversation messages available", ephemeral=True)
+            message = await interaction.followup.send("📭 No conversation messages available", ephemeral=True)
+            self.add_related_message(message)
             return
         
         # Group messages by author for better readability
@@ -190,11 +192,13 @@ class CustomReplyModal(discord.ui.Modal, title="Custom Reply"):
                         timestamp=discord.utils.utcnow()
                     )
                     chunk_embed.set_footer(text="Intercom Ticket Bot")
-                    await interaction.followup.send(embed=chunk_embed)
+                    message = await interaction.followup.send(embed=chunk_embed)
+                    self.add_related_message(message)
             else:
                 author_embed.description = content
                 author_embed.set_footer(text="Intercom Ticket Bot")
-                await interaction.followup.send(embed=author_embed)
+                message = await interaction.followup.send(embed=author_embed)
+                self.add_related_message(message)
             
             # Add a small delay between embeds to avoid rate limiting
             if i < len(all_groups):
@@ -268,6 +272,7 @@ class TicketView(discord.ui.View):
         self.conversation_id = conversation_id
         self.intercom_client = intercom_client
         self.db_manager = db_manager
+        self.related_messages = []  # Track all messages sent by this ticket view
         
         # Add quick reply buttons
         for key, config in Config.QUICK_REPLIES.items():
@@ -297,6 +302,23 @@ class TicketView(discord.ui.View):
         close_button.callback = self.close_ticket_callback
         self.add_item(close_button)
     
+    def add_related_message(self, message):
+        """Add a message to the list of related messages to clean up later"""
+        self.related_messages.append(message)
+    
+    async def cleanup_related_messages(self):
+        """Clean up all related messages sent by this ticket view"""
+        for message in self.related_messages:
+            try:
+                await message.delete()
+            except discord.NotFound:
+                pass  # Message already deleted
+            except Exception as e:
+                print(f"Warning: Could not delete related message {message.id}: {str(e)}")
+        
+        # Clear the list
+        self.related_messages.clear()
+    
     async def custom_reply_callback(self, interaction: discord.Interaction):
         """Handle custom reply button click"""
         # Show the custom reply modal
@@ -304,7 +326,8 @@ class TicketView(discord.ui.View):
             self.conversation_id,
             self.intercom_client,
             self.db_manager,
-            self.ticket_id
+            self.ticket_id,
+            self  # Pass self as ticket_view reference
         )
         await interaction.response.send_modal(modal)
     
@@ -347,6 +370,9 @@ class TicketView(discord.ui.View):
                             # Update database
                             await self.db_manager.update_ticket_status(self.ticket_id, "closed")
                             
+                            # Clean up all related messages first
+                            await self.cleanup_related_messages()
+                            
                             # Send confirmation with closure info
                             await interaction.response.send_message(
                                 f"✅ Reply sent and ticket closed successfully!\n\n**Reply:** {config['reply']}",
@@ -370,17 +396,18 @@ class TicketView(discord.ui.View):
                         # Send confirmation for regular reply
                         await interaction.response.send_message(
                             f"✅ Reply sent successfully!\n\n**Reply:** {config['reply']}",
-                            embed=embed,
                             ephemeral=True
                         )
                     
-                    # Show updated conversation thread
-                    await self.show_conversation_thread(interaction)
+                    # Show updated conversation thread (only if not auto-closing)
+                    if not config.get("close_ticket", False):
+                        await self.show_conversation_thread(interaction)
                 else:
-                    await interaction.response.send_message(
+                    error_message = await interaction.response.send_message(
                         "❌ Failed to send reply to Intercom. Please try again.",
                         ephemeral=True
                     )
+                    self.add_related_message(error_message)
             else:
                 await interaction.response.send_message(
                     f"❌ Unknown quick reply action: {action}",
@@ -399,42 +426,16 @@ class TicketView(discord.ui.View):
             import asyncio
             await asyncio.sleep(2)
             
+            # Check if the ticket is still open before showing the thread
+            ticket_status = await self.db_manager.get_ticket_status(self.ticket_id)
+            if ticket_status == "closed":
+                # Ticket was closed (probably by a quick reply), don't show thread
+                return
+            
             # Get updated conversation thread data
             conversation_data = await self.intercom_client.get_conversation_thread(self.conversation_id)
             if conversation_data:
-                # Create main thread embed
-                thread_embed = discord.Embed(
-                    title="📝 Conversation Thread Updated",
-                    description="Latest conversation status:",
-                    color=0x0099ff,
-                    timestamp=discord.utils.utcnow()
-                )
-                
-                thread_embed.add_field(
-                    name="🆔 Conversation ID",
-                    value=self.conversation_id,
-                    inline=True
-                )
-                
-                thread_embed.add_field(
-                    name="📊 Status",
-                    value=conversation_data.get('status', 'Unknown'),
-                    inline=True
-                )
-                
-                thread_embed.add_field(
-                    name="💬 Message Count",
-                    value=conversation_data.get('message_count', 0),
-                    inline=True
-                )
-                
-                # Send the main embed first
-                await interaction.followup.send(
-                    "🔄 **Conversation thread updated:**",
-                    embed=thread_embed
-                )
-                
-                # Now send the full conversation thread
+                # Send the full conversation thread directly (no duplicate status message)
                 await self._send_conversation_thread(interaction, conversation_data)
                 
         except Exception as e:
@@ -449,7 +450,8 @@ class TicketView(discord.ui.View):
         thread_messages = conversation_data.get('thread_messages', [])
         
         if not body or body == 'No content':
-            await interaction.followup.send("📭 No conversation content available", ephemeral=True)
+            message = await interaction.followup.send("📭 No conversation content available", ephemeral=True)
+            self.add_related_message(message)
             return
         
         # If the thread is short enough, send it in one message
@@ -462,7 +464,8 @@ class TicketView(discord.ui.View):
             )
             thread_embed.set_footer(text="Intercom Ticket Bot")
             
-            await interaction.followup.send(embed=thread_embed)
+            message = await interaction.followup.send(embed=thread_embed)
+            self.add_related_message(message)
             return
         
         # For long threads, split into multiple embeds
@@ -471,7 +474,8 @@ class TicketView(discord.ui.View):
     async def _send_split_conversation_thread(self, interaction: discord.Interaction, thread_messages: List[Dict]):
         """Send a long conversation thread split across multiple embeds"""
         if not thread_messages:
-            await interaction.followup.send("📭 No conversation messages available", ephemeral=True)
+            message = await interaction.followup.send("📭 No conversation messages available", ephemeral=True)
+            self.add_related_message(message)
             return
         
         # Group messages by author for better readability
@@ -524,11 +528,13 @@ class TicketView(discord.ui.View):
                         timestamp=discord.utils.utcnow()
                     )
                     chunk_embed.set_footer(text="Intercom Ticket Bot")
-                    await interaction.followup.send(embed=chunk_embed)
+                    message = await interaction.followup.send(embed=chunk_embed)
+                    self.add_related_message(message)
             else:
                 author_embed.description = content
                 author_embed.set_footer(text="Intercom Ticket Bot")
-                await interaction.followup.send(embed=author_embed)
+                message = await interaction.followup.send(embed=author_embed)
+                self.add_related_message(message)
             
             # Add a small delay between embeds to avoid rate limiting
             if i < len(all_groups):
@@ -548,7 +554,10 @@ class TicketView(discord.ui.View):
                 # Update database
                 await self.db_manager.update_ticket_status(self.ticket_id, "closed")
                 
-                # Remove the Discord message
+                # Clean up all related messages first
+                await self.cleanup_related_messages()
+                
+                # Remove the main Discord message
                 try:
                     await interaction.message.delete()
                 except discord.NotFound:
@@ -579,6 +588,24 @@ class ConfirmationView(discord.ui.View):
         self.conversation_id = conversation_id
         self.intercom_client = intercom_client
         self.db_manager = db_manager
+        self.related_messages = []  # Track related messages for cleanup
+    
+    def add_related_message(self, message):
+        """Add a message to the list of related messages to clean up later"""
+        self.related_messages.append(message)
+    
+    async def cleanup_related_messages(self):
+        """Clean up all related messages sent by this confirmation view"""
+        for message in self.related_messages:
+            try:
+                await message.delete()
+            except discord.NotFound:
+                pass  # Message already deleted
+            except Exception as e:
+                print(f"Warning: Could not delete related message {message.id}: {str(e)}")
+        
+        # Clear the list
+        self.related_messages.clear()
     
     @discord.ui.button(label="Yes, Close Ticket", style=discord.ButtonStyle.danger)
     async def confirm_close(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -590,6 +617,9 @@ class ConfirmationView(discord.ui.View):
             if success:
                 # Update database
                 await self.db_manager.update_ticket_status(self.ticket_id, "closed")
+                
+                # Clean up all related messages first
+                await self.cleanup_related_messages()
                 
                 # Remove the Discord message
                 try:

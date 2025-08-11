@@ -113,3 +113,12 @@ class DatabaseManager:
                 WHERE last_updated < ?
             ''', (cutoff_date.isoformat(),))
             await db.commit()
+
+    async def get_ticket_status(self, ticket_id: str) -> Optional[str]:
+        """Get the status of a ticket by ID"""
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute('''
+                SELECT status FROM tickets WHERE id = ?
+            ''', (ticket_id,)) as cursor:
+                row = await cursor.fetchone()
+                return row[0] if row else None

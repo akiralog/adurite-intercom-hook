@@ -151,7 +151,8 @@ class IntercomTicketBot(commands.Bot):
                         logger.error(f"Could not get conversation thread data for {conv['id']}")
                 
                 logger.info(f"Sync completed. Posted {len(fresh_conversations)} tickets to Discord.")
-                await ctx.send(f"✅ Sync completed! Posted {len(fresh_conversations)} fresh tickets to Discord.")
+                if len(fresh_conversations) == 0:
+                    await ctx.send(f"No fresh tickets found.")
                 
             except Exception as e:
                 logger.error(f"Error during sync: {str(e)}")

@@ -226,13 +226,31 @@ class WebhookHandler:
         if not ticket_data:
             return {"info": "Ticket not found in database"}
         
-        # Remove the Discord message since it's no longer "fresh"
+        # Remove the Discord message and any related messages since it's no longer "fresh"
         try:
             channel = self.discord_channel
             message = await channel.fetch_message(ticket_data['discord_message_id'])
+            
+            # Try to find and delete related messages (conversation thread updates)
+            # Look for messages in the last few minutes that might be related
+            async for msg in channel.history(limit=50, after=message.created_at):
+                # Check if this message is related to our ticket
+                if (msg.author == self.bot.user and 
+                    (conversation_id in msg.content or 
+                     any(field.value == conversation_id for field in msg.embeds if msg.embeds))):
+                    try:
+                        await msg.delete()
+                        print(f"Deleted related message {msg.id} for ticket {conversation_id}")
+                    except discord.NotFound:
+                        pass  # Message already deleted
+                    except Exception as e:
+                        print(f"Warning: Could not delete related message {msg.id}: {str(e)}")
+            
+            # Delete the main ticket message
             await message.delete()
-        except:
-            pass  # Message might already be deleted
+            
+        except Exception as e:
+            print(f"Warning: Could not clean up messages for ticket {conversation_id}: {str(e)}")
         
         # Update database
         await self.db_manager.update_ticket_status(ticket_data['id'], 'admin_replied')
@@ -246,13 +264,31 @@ class WebhookHandler:
         if not ticket_data:
             return {"info": "Ticket not found in database"}
         
-        # Remove the Discord message
+        # Remove the Discord message and any related messages
         try:
             channel = self.discord_channel
             message = await channel.fetch_message(ticket_data['discord_message_id'])
+            
+            # Try to find and delete related messages (conversation thread updates)
+            # Look for messages in the last few minutes that might be related
+            async for msg in channel.history(limit=50, after=message.created_at):
+                # Check if this message is related to our ticket
+                if (msg.author == self.bot.user and 
+                    (conversation_id in msg.content or 
+                     any(field.value == conversation_id for field in msg.embeds if msg.embeds))):
+                    try:
+                        await msg.delete()
+                        print(f"Deleted related message {msg.id} for ticket {conversation_id}")
+                    except discord.NotFound:
+                        pass  # Message already deleted
+                    except Exception as e:
+                        print(f"Warning: Could not delete related message {msg.id}: {str(e)}")
+            
+            # Delete the main ticket message
             await message.delete()
-        except:
-            pass  # Message might already be deleted
+            
+        except Exception as e:
+            print(f"Warning: Could not clean up messages for ticket {conversation_id}: {str(e)}")
         
         # Update database
         await self.db_manager.update_ticket_status(ticket_data['id'], 'closed')
